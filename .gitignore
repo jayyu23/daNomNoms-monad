@@ -62,4 +62,4 @@ htmlcov/
 .dmypy.json
 dmypy.json
 
-local/
+local/*

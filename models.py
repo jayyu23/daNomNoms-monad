@@ -315,3 +315,67 @@ class MenuResponse(BaseModel):
             }
         }
 
+
+class DoorDashCreateDeliveryRequest(BaseModel):
+    """Request model for creating a DoorDash delivery."""
+    external_delivery_id: str = Field(..., description="Unique identifier for the delivery")
+    pickup_address: str = Field(..., description="Pickup address")
+    pickup_business_name: str = Field(..., description="Business name for pickup location")
+    pickup_phone_number: str = Field(..., description="Phone number for pickup location")
+    pickup_instructions: Optional[str] = Field(None, description="Special instructions for pickup")
+    pickup_reference_tag: Optional[str] = Field(None, description="Reference tag for pickup")
+    dropoff_address: str = Field(..., description="Dropoff address")
+    dropoff_business_name: Optional[str] = Field(None, description="Business name for dropoff location")
+    dropoff_phone_number: str = Field(..., description="Phone number for dropoff location")
+    dropoff_instructions: Optional[str] = Field(None, description="Special instructions for dropoff")
+    dropoff_contact_given_name: Optional[str] = Field(None, description="Contact first name")
+    dropoff_contact_family_name: Optional[str] = Field(None, description="Contact last name")
+    order_value: Optional[int] = Field(None, description="Order value in cents")
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "external_delivery_id": "D-12345",
+                "pickup_address": "901 Market Street 6th Floor San Francisco, CA 94103",
+                "pickup_business_name": "Wells Fargo SF Downtown",
+                "pickup_phone_number": "+16505555555",
+                "pickup_instructions": "Enter gate code 1234 on the callbox.",
+                "pickup_reference_tag": "Order number 61",
+                "dropoff_address": "901 Market Street 6th Floor San Francisco, CA 94103",
+                "dropoff_business_name": "Wells Fargo SF Downtown",
+                "dropoff_phone_number": "+16505555555",
+                "dropoff_instructions": "Enter gate code 1234 on the callbox."
+            }
+        }
+
+
+class DoorDashDeliveryResponse(BaseModel):
+    """Response model for DoorDash delivery operations."""
+    id: Optional[str] = None
+    external_delivery_id: Optional[str] = None
+    delivery_status: Optional[str] = None
+    tracking_url: Optional[str] = None
+    currency: Optional[str] = None
+    dropoff_deadline: Optional[str] = None
+    pickup_deadline: Optional[str] = None
+    pickup_address: Optional[str] = None
+    dropoff_address: Optional[str] = None
+    actual_pickup_time: Optional[str] = None
+    actual_dropoff_time: Optional[str] = None
+    estimated_pickup_time: Optional[str] = None
+    estimated_dropoff_time: Optional[str] = None
+    
+    class Config:
+        # Allow extra fields from DoorDash API that we haven't defined
+        extra = "allow"
+        json_schema_extra = {
+            "example": {
+                "id": "d2f7b3c4-5e6f-7a8b-9c0d-1e2f3a4b5c6d",
+                "external_delivery_id": "D-12345",
+                "delivery_status": "delivery_created",
+                "tracking_url": "https://track.doordash.com/delivery/...",
+                "currency": "USD",
+                "dropoff_deadline": "2024-01-01T12:00:00Z",
+                "pickup_deadline": "2024-01-01T11:30:00Z"
+            }
+        }
