@@ -162,6 +162,7 @@ Root endpoint that lists all available API endpoints.
   "version": "1.0.0",
   "endpoints": {
     "list_restaurants": "GET /api/restaurants/",
+    "get_restaurant": "GET /api/restaurants/{restaurant_id}",
     "get_menu": "GET /api/restaurants/{restaurant_id}/menu",
     "get_item": "GET /api/restaurants/items/{item_id}",
     "build_cart": "POST /api/restaurants/cart",
