@@ -5,6 +5,7 @@ import os
 import uuid
 import json
 import requests
+import time
 from typing import Dict, List, Any, Optional
 from dotenv import load_dotenv
 from fastapi import APIRouter, HTTPException
@@ -329,7 +330,7 @@ def get_gpt_tools() -> List[Dict[str, Any]]:
 
 def execute_function_call(function_name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
     """
-    Execute a function call by making an HTTP request to the API.
+    Execute a function call by making an HTTP request to the API with retry logic.
     
     Args:
         function_name: Name of the function to call
@@ -338,85 +339,113 @@ def execute_function_call(function_name: str, arguments: Dict[str, Any]) -> Dict
     Returns:
         Function execution result
     """
-    try:
-        if function_name == "list_restaurants":
-            # Limit default to 10 restaurants to prevent token overflow
-            limit = min(arguments.get("limit", 10), 50)  # Max 50 restaurants
-            skip = arguments.get("skip", 0)
-            url = f"{API_BASE_URL}/api/restaurants/?limit={limit}&skip={skip}"
-            response = requests.get(url, timeout=30)
+    max_retries = 2
+    timeout = 90  # Increased timeout for Render free tier cold starts
+    
+    for attempt in range(max_retries + 1):
+        try:
+            if function_name == "list_restaurants":
+                limit = min(arguments.get("limit", 10), 50)
+                skip = arguments.get("skip", 0)
+                url = f"{API_BASE_URL}/api/restaurants/?limit={limit}&skip={skip}"
+                response = requests.get(url, timeout=timeout)
+                
+            elif function_name == "get_restaurant_menu":
+                restaurant_id = arguments.get("restaurant_id")
+                url = f"{API_BASE_URL}/api/restaurants/{restaurant_id}/menu"
+                response = requests.get(url, timeout=timeout)
+                
+            elif function_name == "get_menu_item":
+                item_id = arguments.get("item_id")
+                url = f"{API_BASE_URL}/api/restaurants/items/{item_id}"
+                response = requests.get(url, timeout=timeout)
+                
+            elif function_name == "build_cart":
+                url = f"{API_BASE_URL}/api/restaurants/cart"
+                response = requests.post(url, json=arguments, timeout=timeout)
+                
+            elif function_name == "compute_cost_estimate":
+                url = f"{API_BASE_URL}/api/restaurants/cost-estimate"
+                response = requests.post(url, json=arguments, timeout=timeout)
+                
+            elif function_name == "create_receipt":
+                url = f"{API_BASE_URL}/api/restaurants/receipts"
+                response = requests.post(url, json=arguments, timeout=timeout)
+                
+            elif function_name == "create_delivery":
+                url = f"{API_BASE_URL}/api/doordash/deliveries"
+                response = requests.post(url, json=arguments, timeout=timeout)
+                
+            elif function_name == "track_delivery":
+                external_delivery_id = arguments.get("external_delivery_id")
+                url = f"{API_BASE_URL}/api/doordash/deliveries/{external_delivery_id}"
+                response = requests.get(url, timeout=timeout)
+                
+            else:
+                return {"error": f"Unknown function: {function_name}"}
             
-        elif function_name == "get_restaurant_menu":
-            restaurant_id = arguments.get("restaurant_id")
-            url = f"{API_BASE_URL}/api/restaurants/{restaurant_id}/menu"
-            response = requests.get(url, timeout=30)
-            
-        elif function_name == "get_menu_item":
-            item_id = arguments.get("item_id")
-            url = f"{API_BASE_URL}/api/restaurants/items/{item_id}"
-            response = requests.get(url, timeout=30)
-            
-        elif function_name == "build_cart":
-            url = f"{API_BASE_URL}/api/restaurants/cart"
-            response = requests.post(url, json=arguments, timeout=30)
-            
-        elif function_name == "compute_cost_estimate":
-            url = f"{API_BASE_URL}/api/restaurants/cost-estimate"
-            response = requests.post(url, json=arguments, timeout=30)
-            
-        elif function_name == "create_receipt":
-            url = f"{API_BASE_URL}/api/restaurants/receipts"
-            response = requests.post(url, json=arguments, timeout=30)
-            
-        elif function_name == "create_delivery":
-            url = f"{API_BASE_URL}/api/doordash/deliveries"
-            response = requests.post(url, json=arguments, timeout=30)
-            
-        elif function_name == "track_delivery":
-            external_delivery_id = arguments.get("external_delivery_id")
-            url = f"{API_BASE_URL}/api/doordash/deliveries/{external_delivery_id}"
-            response = requests.get(url, timeout=30)
-            
-        else:
+            # Handle successful response
+            if response.status_code >= 200 and response.status_code < 300:
+                try:
+                    result = response.json()
+                    
+                    # Limit large responses to prevent token overflow
+                    if function_name == "list_restaurants" and isinstance(result, dict) and "restaurants" in result:
+                        if len(result["restaurants"]) > 10:
+                            result["restaurants"] = result["restaurants"][:10]
+                            result["total"] = min(result.get("total", 0), 10)
+                    
+                    elif function_name == "get_restaurant_menu" and isinstance(result, dict) and "items" in result:
+                        if len(result["items"]) > 20:
+                            result["items"] = result["items"][:20]
+                            result["total_items"] = min(result.get("total_items", 0), 20)
+                    
+                    return result
+                except json.JSONDecodeError as e:
+                    return {
+                        "error": f"Failed to parse API response: {str(e)}",
+                        "response_preview": response.text[:200] if response.text else "Empty"
+                    }
+            else:
+                # Non-2xx status - retry if not last attempt
+                if attempt < max_retries:
+                    time.sleep(1)  # Wait before retry
+                    continue
+                return {
+                    "error": f"API error (status {response.status_code}): {response.text[:500]}",
+                    "status_code": response.status_code
+                }
+                
+        except requests.exceptions.Timeout:
+            if attempt < max_retries:
+                time.sleep(2)  # Wait longer before retry on timeout
+                continue
             return {
-                "error": f"Unknown function: {function_name}"
+                "error": "Request timeout: The API took too long to respond. This may be due to server cold start. Please try again."
             }
-        
-        # Handle response
-        if response.status_code >= 200 and response.status_code < 300:
-            result = response.json()
-            
-            # Limit large responses to prevent token overflow
-            if function_name == "list_restaurants" and isinstance(result, dict) and "restaurants" in result:
-                # Limit to first 10 restaurants to prevent token overflow
-                if len(result["restaurants"]) > 10:
-                    result["restaurants"] = result["restaurants"][:10]
-                    result["total"] = min(result.get("total", 0), 10)
-            
-            # For menu items, limit to first 20 items
-            elif function_name == "get_restaurant_menu" and isinstance(result, dict) and "items" in result:
-                if len(result["items"]) > 20:
-                    result["items"] = result["items"][:20]
-                    result["total_items"] = min(result.get("total_items", 0), 20)
-            
-            return result
-        else:
+        except requests.exceptions.ConnectionError as e:
+            if attempt < max_retries:
+                time.sleep(2)
+                continue
             return {
-                "error": f"API error (status {response.status_code}): {response.text}"
+                "error": f"Connection error: Unable to connect to API. {str(e)}"
             }
-            
-    except requests.exceptions.RequestException as e:
-        return {
-            "error": f"Request error: {str(e)}"
-        }
-    except Exception as e:
-        return {
-            "error": f"Unexpected error: {str(e)}"
-        }
+        except requests.exceptions.RequestException as e:
+            if attempt < max_retries:
+                time.sleep(1)
+                continue
+            return {
+                "error": f"Request error: {str(e)}"
+            }
+        except Exception as e:
+            return {
+                "error": f"Unexpected error: {str(e)}"
+            }
+    
+    return {"error": "Failed after multiple retry attempts"}
 
 
 # In-memory storage for conversation threads
-# Format: {thread_id: [{"role": "user"|"assistant"|"function", "content": "...", ...}, ...]}
 conversation_threads: Dict[str, List[Dict[str, Any]]] = {}
 
 
@@ -424,54 +453,26 @@ def trim_conversation_history(messages: List[Dict[str, Any]], max_messages: int 
     """
     Trim conversation history to keep only the most recent messages.
     This prevents token overflow by maintaining a sliding window of recent messages.
-    
-    Args:
-        messages: Full conversation history
-        max_messages: Maximum number of messages to keep (default: 20 for better token management)
-        
-    Returns:
-        Trimmed conversation history
     """
     if len(messages) <= max_messages:
         return messages
     
-    # Keep system message if present, then keep the most recent messages
     system_msgs = [msg for msg in messages if msg.get("role") == "system"]
     non_system_msgs = [msg for msg in messages if msg.get("role") != "system"]
-    
-    # Keep the most recent non-system messages
     trimmed_non_system = non_system_msgs[-max_messages:] if len(non_system_msgs) > max_messages else non_system_msgs
     
-    # Combine system messages with trimmed history
     return system_msgs + trimmed_non_system
 
 
 def truncate_large_content(content: str, max_length: int = 3000) -> str:
-    """
-    Truncate large content strings to prevent token overflow.
-    
-    Args:
-        content: Content string to truncate
-        max_length: Maximum length before truncation (reduced to 3000 for safety)
-        
-    Returns:
-        Truncated content with indication if it was truncated
-    """
+    """Truncate large content strings to prevent token overflow."""
     if isinstance(content, str) and len(content) > max_length:
         return content[:max_length] + "\n\n[Content truncated due to length...]"
     return content
 
 
 def get_or_create_thread(thread_id: str) -> List[Dict[str, Any]]:
-    """
-    Get conversation history for a thread, or create a new thread if it doesn't exist.
-    
-    Args:
-        thread_id: Thread identifier
-        
-    Returns:
-        List of conversation messages
-    """
+    """Get conversation history for a thread, or create a new thread if it doesn't exist."""
     if thread_id not in conversation_threads:
         conversation_threads[thread_id] = []
     return conversation_threads[thread_id]
@@ -486,65 +487,37 @@ def generate_thread_id() -> str:
 async def agent_chat(request: AgentRequest):
     """
     Chat with GPT-4o-mini agent with conversation memory and GPT Actions.
-    
-    This endpoint takes a user prompt and returns a response from GPT-4o-mini.
-    The agent can call external API functions (Actions) to interact with restaurants
-    and DoorDash delivery services. If a thread_id is provided, the conversation 
-    continues from that thread's history.
-    
-    Args:
-        request: Agent chat request with prompt and optional thread_id
-        
-    Returns:
-        Agent response with the AI's reply and thread_id for continuing the conversation
-        
-    Example curl request:
-    ```bash
-    curl -X POST http://localhost:8000/api/agent/chat \
-      -H "Content-Type: application/json" \
-      -d '{
-        "prompt": "What restaurants are available?",
-        "thread_id": "thread_abc123"
-      }'
-    ```
     """
     try:
-        # Get OpenAI client
         client = get_openai_client()
-        
-        # Get or create thread
         thread_id = request.thread_id or generate_thread_id()
         conversation_history = get_or_create_thread(thread_id)
         
-        # Trim conversation history to prevent token overflow (keep last 20 messages)
+        # Trim conversation history to prevent token overflow
         conversation_history = trim_conversation_history(conversation_history, max_messages=20)
+        conversation_threads[thread_id] = conversation_history
         
-        # Add user message to conversation history
+        # Add user message
         conversation_history.append({
             "role": "user",
             "content": request.prompt
         })
         
-        # Get available tools
         tools = get_gpt_tools()
         
-        # Initial system message to set context
         system_message = {
             "role": "system",
             "content": "You are a helpful assistant for the DaNomNoms food delivery service. You can help users browse restaurants, view menus, build carts, create orders, and manage deliveries. Use the available functions to interact with the API when needed."
         }
         
-        # Prepare messages with system message first (only if thread is new)
         messages = [system_message] if len(conversation_history) == 1 else []
         messages.extend(conversation_history)
         
-        # Call OpenAI API with conversation history and tools
-        max_iterations = 10  # Prevent infinite loops
+        max_iterations = 10
         iteration = 0
         final_response = ""
         
         while iteration < max_iterations:
-            # Format messages for OpenAI API (exclude tool_calls from dict format)
             api_messages = []
             for msg in messages:
                 if msg.get("role") == "tool":
@@ -554,13 +527,11 @@ async def agent_chat(request: AgentRequest):
                         "content": msg.get("content")
                     })
                 elif msg.get("role") == "assistant" and msg.get("tool_calls"):
-                    # For assistant messages with tool calls, OpenAI expects a specific format
-                    assistant_msg = {
+                    api_messages.append({
                         "role": "assistant",
                         "content": msg.get("content") or None,
                         "tool_calls": msg.get("tool_calls")
-                    }
-                    api_messages.append(assistant_msg)
+                    })
                 else:
                     api_messages.append({
                         "role": msg.get("role"),
@@ -578,13 +549,11 @@ async def agent_chat(request: AgentRequest):
             
             assistant_message = response.choices[0].message
             
-            # Prepare assistant message for storage
             assistant_msg_dict = {
                 "role": "assistant",
                 "content": assistant_message.content
             }
             
-            # Handle tool calls if present
             if assistant_message.tool_calls:
                 assistant_msg_dict["tool_calls"] = [
                     {
@@ -597,10 +566,8 @@ async def agent_chat(request: AgentRequest):
                     } for tc in assistant_message.tool_calls
                 ]
             
-            # Add assistant's message to messages
             messages.append(assistant_msg_dict)
             
-            # If no tool calls, we're done - this is the final response
             if not assistant_message.tool_calls:
                 final_response = assistant_message.content or ""
                 break
@@ -613,14 +580,10 @@ async def agent_chat(request: AgentRequest):
                 except json.JSONDecodeError:
                     function_args = {}
                 
-                # Execute the function call
                 function_result = execute_function_call(function_name, function_args)
-                
-                # Convert result to JSON string and truncate if too large
                 result_json = json.dumps(function_result)
                 truncated_result = truncate_large_content(result_json, max_length=5000)
                 
-                # Add function result to messages
                 messages.append({
                     "role": "tool",
                     "tool_call_id": tool_call.id,
@@ -629,15 +592,12 @@ async def agent_chat(request: AgentRequest):
             
             iteration += 1
         
-        # If we hit max iterations without a final response, get the last assistant message
         if not final_response:
             for msg in reversed(messages):
                 if msg.get("role") == "assistant" and msg.get("content"):
                     final_response = msg.get("content")
                     break
         
-        # Update conversation history (excluding system message)
-        # Trim again before saving to prevent unbounded growth
         updated_history = [msg for msg in messages if msg.get("role") != "system"]
         conversation_threads[thread_id] = trim_conversation_history(updated_history, max_messages=20)
         
