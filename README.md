@@ -551,6 +551,7 @@ All endpoints may return the following error responses:
 
 ## Additional Resources
 
+- [API Documentation (ReDoc)](https://danomnoms-api.onrender.com/redoc) - Interactive API documentation
 - [FastAPI Documentation](https://fastapi.tiangolo.com/)
 - [DoorDash Developer Portal](https://developer.doordash.com/)
 - [DoorDash Drive API Tutorial](https://developer.doordash.com/en-US/docs/drive/tutorials/get_started/)
