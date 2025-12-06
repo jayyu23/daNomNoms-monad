@@ -166,6 +166,7 @@ Root endpoint that lists all available API endpoints.
     "get_item": "GET /api/restaurants/items/{item_id}",
     "build_cart": "POST /api/restaurants/cart",
     "compute_cost_estimate": "POST /api/restaurants/cost-estimate",
+    "create_receipt": "POST /api/restaurants/receipts",
     "create_delivery": "POST /api/doordash/deliveries",
     "track_delivery": "GET /api/doordash/deliveries/{external_delivery_id}"
   }
@@ -396,6 +397,112 @@ curl -X POST https://danomnoms-api.onrender.com/api/restaurants/cost-estimate \
     ]
   }'
 ```
+
+#### POST `/api/restaurants/receipts`
+
+Create a receipt for a completed order.
+
+**Request Body:**
+```json
+{
+  "restaurant_id": "69347db4fa0aa2fde8fdaeb3",
+  "items": [
+    {
+      "item_id": "69347db5fa0aa2fde8fdaf17",
+      "quantity": 2
+    },
+    {
+      "item_id": "69347db5fa0aa2fde8fdaf18",
+      "quantity": 1
+    }
+  ],
+  "delivery_id": "D-12345",
+  "customer_name": "John Doe",
+  "customer_email": "john@example.com",
+  "customer_phone": "+16505555555",
+  "delivery_address": "123 Main St, San Francisco, CA 94103"
+}
+```
+
+**Required Fields:**
+- `restaurant_id`: MongoDB `_id` of the restaurant
+- `items`: List of items in the order (minimum 1 item required)
+  - `item_id`: MongoDB `_id` of the menu item
+  - `quantity`: Quantity of the item (minimum 1)
+
+**Optional Fields:**
+- `delivery_id`: DoorDash delivery external_delivery_id (if linked to a delivery)
+- `customer_name`: Customer name
+- `customer_email`: Customer email
+- `customer_phone`: Customer phone number
+- `delivery_address`: Delivery address
+
+**Response:**
+```json
+{
+  "_id": "507f1f77bcf86cd799439014",
+  "receipt_id": "RCP-20240101-001",
+  "restaurant_id": "69347db4fa0aa2fde8fdaeb3",
+  "restaurant_name": "Example Restaurant",
+  "items": [
+    {
+      "item_id": "69347db5fa0aa2fde8fdaf17",
+      "name": "Burger",
+      "description": "Delicious burger",
+      "price": 12.99,
+      "quantity": 2,
+      "subtotal": 25.98
+    },
+    {
+      "item_id": "69347db5fa0aa2fde8fdaf18",
+      "name": "Fries",
+      "description": "Crispy fries",
+      "price": 4.99,
+      "quantity": 1,
+      "subtotal": 4.99
+    }
+  ],
+  "subtotal": 30.97,
+  "delivery_fee": 2.99,
+  "tax": 2.63,
+  "total": 36.59,
+  "delivery_id": "D-12345",
+  "customer_name": "John Doe",
+  "customer_email": "john@example.com",
+  "customer_phone": "+16505555555",
+  "delivery_address": "123 Main St, San Francisco, CA 94103",
+  "created_at": "2024-01-01T12:00:00Z"
+}
+```
+
+**Example:**
+```bash
+curl -X POST https://danomnoms-api.onrender.com/api/restaurants/receipts \
+  -H "Content-Type: application/json" \
+  -d '{
+    "restaurant_id": "69347db4fa0aa2fde8fdaeb3",
+    "items": [
+      {
+        "item_id": "69347db5fa0aa2fde8fdaf17",
+        "quantity": 2
+      },
+      {
+        "item_id": "69347db5fa0aa2fde8fdaf18",
+        "quantity": 1
+      }
+    ],
+    "delivery_id": "D-12345",
+    "customer_name": "John Doe",
+    "customer_email": "john@example.com",
+    "customer_phone": "+16505555555",
+    "delivery_address": "123 Main St, San Francisco, CA 94103"
+  }'
+```
+
+**Note:** 
+- The receipt ID is automatically generated in the format `RCP-YYYYMMDD-XXX` where `XXX` is a sequential number for the day
+- Tax is calculated at 8.5% of the subtotal
+- The receipt is saved to MongoDB and can be retrieved later using the `_id` or `receipt_id`
 
 ---
 
