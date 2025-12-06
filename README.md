@@ -37,15 +37,26 @@ Alternative API documentation (ReDoc) is available at `http://localhost:8000/red
 
 ## Environment Variables
 
-Create a `.env` file with the following DoorDash credentials:
+Create a `.env` file in the root directory with the following variables:
 
 ```env
+# MongoDB connection string
+MONGODB_URI=mongodb+srv://username:password@cluster.mongodb.net/?retryWrites=true&w=majority
+
+# DoorDash API credentials
 DOORDASH_DEVELOPER_ID=your_developer_id
 DOORDASH_KEY_ID=your_key_id
 DOORDASH_SIGNING_SECRET=your_signing_secret
 ```
 
-Get your DoorDash credentials from the [DoorDash Developer Portal](https://developer.doordash.com/)
+**MongoDB Setup:**
+- Get a free MongoDB database from [MongoDB Atlas](https://www.mongodb.com/cloud/atlas)
+- Create a cluster and get your connection string
+- Replace `username`, `password`, and `cluster` with your actual values
+
+**DoorDash Credentials:**
+- Get your DoorDash credentials from the [DoorDash Developer Portal](https://developer.doordash.com/)
+- The `DOORDASH_SIGNING_SECRET` should be base64url encoded
 
 ## Running the Server
 
@@ -56,6 +67,81 @@ uvicorn app:app --reload
 # Production mode
 uvicorn app:app --host 0.0.0.0 --port 8000
 ```
+
+## Deployment to Render
+
+This application can be easily deployed to [Render](https://render.com) for production hosting.
+
+### Prerequisites
+
+1. A [Render account](https://render.com) (free tier available)
+2. A MongoDB database (recommended: [MongoDB Atlas](https://www.mongodb.com/cloud/atlas) free tier)
+3. Your DoorDash API credentials
+
+### Deployment Steps
+
+#### Option 1: Using Render Blueprint (Recommended)
+
+1. **Fork/Push your repository to GitHub** (if not already done)
+
+2. **Go to Render Dashboard** → Click "New +" → Select "Blueprint"
+
+3. **Connect your GitHub repository** and select this repository
+
+4. **Render will automatically detect `render.yaml`** and create the service
+
+5. **Set Environment Variables** in the Render dashboard:
+   - `MONGODB_URI`: Your MongoDB connection string (e.g., `mongodb+srv://user:pass@cluster.mongodb.net/`)
+   - `DOORDASH_DEVELOPER_ID`: Your DoorDash developer ID
+   - `DOORDASH_KEY_ID`: Your DoorDash key ID
+   - `DOORDASH_SIGNING_SECRET`: Your DoorDash signing secret (base64url encoded)
+
+6. **Deploy!** Render will automatically build and deploy your application
+
+#### Option 2: Manual Setup
+
+1. **Go to Render Dashboard** → Click "New +" → Select "Web Service"
+
+2. **Connect your GitHub repository** and select this repository
+
+3. **Configure the service:**
+   - **Name**: `danomnoms-api` (or your preferred name)
+   - **Environment**: `Python 3`
+   - **Build Command**: `pip install -r requirements.txt`
+   - **Start Command**: `uvicorn app:app --host 0.0.0.0 --port $PORT`
+   - **Plan**: Free (or upgrade for production)
+
+4. **Add Environment Variables:**
+   - `MONGODB_URI`: Your MongoDB connection string
+   - `DOORDASH_DEVELOPER_ID`: Your DoorDash developer ID
+   - `DOORDASH_KEY_ID`: Your DoorDash key ID
+   - `DOORDASH_SIGNING_SECRET`: Your DoorDash signing secret
+
+5. **Click "Create Web Service"** and wait for deployment
+
+### Post-Deployment
+
+1. **Update CORS settings** in `app.py`:
+   - Change `allow_origins=["*"]` to your frontend domain(s)
+   - Example: `allow_origins=["https://your-frontend.vercel.app"]`
+
+2. **Access your API:**
+   - Your API will be available at: `https://your-service-name.onrender.com`
+   - API docs: `https://your-service-name.onrender.com/docs`
+   - Health check: `https://your-service-name.onrender.com/health`
+
+### Important Notes
+
+- **Free Tier Limitations**: Render's free tier spins down after 15 minutes of inactivity. The first request after spin-down may take 30-60 seconds. Consider upgrading to a paid plan for production.
+- **MongoDB Atlas**: Highly recommended for production. The free tier (M0) provides 512MB storage.
+- **Environment Variables**: Never commit `.env` files. All secrets should be set in Render's dashboard.
+- **SQLite Database**: The `doordash_data.db` file is not suitable for multi-instance deployments. Consider migrating this data to MongoDB if needed.
+
+### Monitoring
+
+- Check deployment logs in the Render dashboard
+- Monitor health endpoint: `GET /health`
+- Set up alerts in Render for failed deployments
 
 ## API Documentation
 
