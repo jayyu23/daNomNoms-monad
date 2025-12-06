@@ -5,7 +5,7 @@ from typing import List, Dict, Any, Optional
 from pymongo.mongo_client import MongoClient
 from pymongo.database import Database
 from pymongo.collection import Collection
-from mongo import get_mongodb_client, get_mongodb_database, RESTAURANTS_COLLECTION, ITEMS_COLLECTION
+from mongo import get_mongodb_client, get_mongodb_database, RESTAURANTS_COLLECTION, ITEMS_COLLECTION, RECEIPTS_COLLECTION
 
 
 class DatabaseService:
@@ -28,6 +28,10 @@ class DatabaseService:
     def get_items_collection(self) -> Collection:
         """Get items collection."""
         return self.db[ITEMS_COLLECTION]
+    
+    def get_receipts_collection(self) -> Collection:
+        """Get receipts collection."""
+        return self.db[RECEIPTS_COLLECTION]
     
     def list_restaurants(self, limit: int = 100, skip: int = 0) -> List[Dict[str, Any]]:
         """
@@ -197,6 +201,59 @@ class DatabaseService:
             return items
         except Exception:
             return []
+    
+    def create_receipt(self, receipt_data: Dict[str, Any]) -> str:
+        """
+        Create a receipt in the database.
+        
+        Args:
+            receipt_data: Receipt document data
+            
+        Returns:
+            MongoDB _id of the created receipt as string
+        """
+        receipts_col = self.get_receipts_collection()
+        result = receipts_col.insert_one(receipt_data)
+        return str(result.inserted_id)
+    
+    def get_receipt_by_id(self, receipt_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Get a receipt by MongoDB _id.
+        
+        Args:
+            receipt_id: MongoDB _id of the receipt
+            
+        Returns:
+            Receipt document or None if not found
+        """
+        from bson import ObjectId
+        receipts_col = self.get_receipts_collection()
+        
+        try:
+            receipt = receipts_col.find_one({'_id': ObjectId(receipt_id)})
+            if receipt:
+                receipt['_id'] = str(receipt['_id'])
+            return receipt
+        except Exception:
+            return None
+    
+    def get_receipt_by_receipt_id(self, receipt_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Get a receipt by receipt_id (the human-readable receipt ID).
+        
+        Args:
+            receipt_id: Receipt ID (e.g., "RCP-20240101-001")
+            
+        Returns:
+            Receipt document or None if not found
+        """
+        receipts_col = self.get_receipts_collection()
+        receipt = receipts_col.find_one({'receipt_id': receipt_id})
+        
+        if receipt:
+            receipt['_id'] = str(receipt['_id'])
+        
+        return receipt
     
     def close(self):
         """Close MongoDB connection."""

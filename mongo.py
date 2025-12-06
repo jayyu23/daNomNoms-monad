@@ -18,6 +18,7 @@ if not MONGODB_URI:
 DATABASE_NAME = "DaNomNoms"
 RESTAURANTS_COLLECTION = "Restaurants"
 ITEMS_COLLECTION = "Items"
+RECEIPTS_COLLECTION = "Receipts"
 SQLITE_DB_PATH = "doordash_data.db"
 
 

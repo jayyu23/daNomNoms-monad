@@ -379,3 +379,106 @@ class DoorDashDeliveryResponse(BaseModel):
                 "pickup_deadline": "2024-01-01T11:30:00Z"
             }
         }
+
+
+class CreateReceiptRequest(BaseModel):
+    """Request model for creating a receipt."""
+    restaurant_id: str = Field(..., description="MongoDB _id of the restaurant")
+    items: List[CartItem] = Field(..., min_items=1, description="List of items in the order")
+    delivery_id: Optional[str] = Field(None, description="Optional DoorDash delivery external_delivery_id")
+    customer_name: Optional[str] = Field(None, description="Customer name")
+    customer_email: Optional[str] = Field(None, description="Customer email")
+    customer_phone: Optional[str] = Field(None, description="Customer phone number")
+    delivery_address: Optional[str] = Field(None, description="Delivery address")
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "restaurant_id": "507f1f77bcf86cd799439011",
+                "items": [
+                    {
+                        "item_id": "507f1f77bcf86cd799439012",
+                        "quantity": 2
+                    },
+                    {
+                        "item_id": "507f1f77bcf86cd799439013",
+                        "quantity": 1
+                    }
+                ],
+                "delivery_id": "D-12345",
+                "customer_name": "John Doe",
+                "customer_email": "john@example.com",
+                "customer_phone": "+16505555555",
+                "delivery_address": "123 Main St, San Francisco, CA 94103"
+            }
+        }
+
+
+class ReceiptItemDetail(BaseModel):
+    """Receipt item detail."""
+    item_id: str
+    name: Optional[str] = None
+    description: Optional[str] = None
+    price: Optional[float] = None
+    quantity: int
+    subtotal: float
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "item_id": "507f1f77bcf86cd799439012",
+                "name": "Burger",
+                "description": "Delicious burger",
+                "price": 12.99,
+                "quantity": 2,
+                "subtotal": 25.98
+            }
+        }
+
+
+class ReceiptResponse(BaseModel):
+    """Receipt response model."""
+    _id: str
+    receipt_id: str
+    restaurant_id: str
+    restaurant_name: Optional[str] = None
+    items: List[ReceiptItemDetail]
+    subtotal: float
+    delivery_fee: Optional[float] = None
+    tax: Optional[float] = None
+    total: float
+    delivery_id: Optional[str] = None
+    customer_name: Optional[str] = None
+    customer_email: Optional[str] = None
+    customer_phone: Optional[str] = None
+    delivery_address: Optional[str] = None
+    created_at: str
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "_id": "507f1f77bcf86cd799439014",
+                "receipt_id": "RCP-20240101-001",
+                "restaurant_id": "507f1f77bcf86cd799439011",
+                "restaurant_name": "Example Restaurant",
+                "items": [
+                    {
+                        "item_id": "507f1f77bcf86cd799439012",
+                        "name": "Burger",
+                        "price": 12.99,
+                        "quantity": 2,
+                        "subtotal": 25.98
+                    }
+                ],
+                "subtotal": 25.98,
+                "delivery_fee": 2.99,
+                "tax": 2.21,
+                "total": 31.18,
+                "delivery_id": "D-12345",
+                "customer_name": "John Doe",
+                "customer_email": "john@example.com",
+                "customer_phone": "+16505555555",
+                "delivery_address": "123 Main St, San Francisco, CA 94103",
+                "created_at": "2024-01-01T12:00:00Z"
+            }
+        }

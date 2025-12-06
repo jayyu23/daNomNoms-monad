@@ -38,6 +38,7 @@ async def root():
             "get_item": "GET /api/restaurants/items/{item_id}",
             "build_cart": "POST /api/restaurants/cart",
             "compute_cost_estimate": "POST /api/restaurants/cost-estimate",
+            "create_receipt": "POST /api/restaurants/receipts",
             "create_delivery": "POST /api/doordash/deliveries",
             "track_delivery": "GET /api/doordash/deliveries/{external_delivery_id}"
         }

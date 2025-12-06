@@ -3,6 +3,7 @@ Restaurant-related API endpoints.
 """
 from typing import Optional, Union
 import re
+from datetime import datetime
 from fastapi import APIRouter, HTTPException, Query
 from database import db_service
 from models import (
@@ -14,7 +15,10 @@ from models import (
     CartResponse,
     CartItemDetail,
     CostEstimateRequest,
-    CostEstimateResponse
+    CostEstimateResponse,
+    CreateReceiptRequest,
+    ReceiptResponse,
+    ReceiptItemDetail
 )
 
 router = APIRouter(prefix="/api/restaurants", tags=["restaurants"])
@@ -340,3 +344,164 @@ async def compute_cost_estimate(request: CostEstimateRequest):
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error computing cost estimate: {str(e)}")
+
+
+def generate_receipt_id() -> str:
+    """
+    Generate a unique receipt ID.
+    
+    Returns:
+        Receipt ID in format RCP-YYYYMMDD-XXX
+    """
+    date_str = datetime.utcnow().strftime("%Y%m%d")
+    
+    # Get count of receipts for today to generate sequence number
+    receipts_col = db_service.get_receipts_collection()
+    today_receipts = receipts_col.count_documents({
+        "receipt_id": {"$regex": f"^RCP-{date_str}-"}
+    })
+    
+    sequence = str(today_receipts + 1).zfill(3)
+    return f"RCP-{date_str}-{sequence}"
+
+
+@router.post("/receipts", response_model=ReceiptResponse)
+async def create_receipt(request: CreateReceiptRequest):
+    """
+    Create a receipt for an order.
+    
+    This endpoint creates a receipt record for a completed order, including
+    all items, pricing, and customer information.
+    
+    Args:
+        request: Receipt creation request with restaurant, items, and customer info
+        
+    Returns:
+        Receipt response with receipt details and ID
+    
+    Example curl request:
+    ```bash
+    curl -X POST http://localhost:8000/api/restaurants/receipts \
+      -H "Content-Type: application/json" \
+      -d '{
+        "restaurant_id": "69347db4fa0aa2fde8fdaeb3",
+        "items": [
+          {
+            "item_id": "69347db5fa0aa2fde8fdaf17",
+            "quantity": 2
+          },
+          {
+            "item_id": "69347db5fa0aa2fde8fdaf18",
+            "quantity": 1
+          }
+        ],
+        "delivery_id": "D-12345",
+        "customer_name": "John Doe",
+        "customer_email": "john@example.com",
+        "customer_phone": "+16505555555",
+        "delivery_address": "123 Main St, San Francisco, CA 94103"
+      }'
+    ```
+    """
+    try:
+        # Verify restaurant exists
+        restaurant = db_service.get_restaurant_by_id(request.restaurant_id)
+        if not restaurant:
+            raise HTTPException(status_code=404, detail="Restaurant not found")
+        
+        # Get all item IDs from the request
+        item_ids = [item.item_id for item in request.items]
+        
+        # Fetch item details from database
+        items_data = db_service.get_items_by_ids(item_ids)
+        
+        if len(items_data) != len(item_ids):
+            raise HTTPException(
+                status_code=400,
+                detail="One or more items not found or invalid"
+            )
+        
+        # Create a mapping of item_id to item data
+        items_map = {item['_id']: item for item in items_data}
+        
+        # Build receipt items with details and calculate subtotal
+        receipt_items = []
+        subtotal = 0.0
+        
+        for cart_item in request.items:
+            item_data = items_map.get(cart_item.item_id)
+            if not item_data:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Item {cart_item.item_id} not found"
+                )
+            
+            item_price = parse_price(item_data.get('price'))
+            item_subtotal = item_price * cart_item.quantity
+            subtotal += item_subtotal
+            
+            receipt_items.append(ReceiptItemDetail(
+                item_id=cart_item.item_id,
+                name=item_data.get('name'),
+                description=item_data.get('description'),
+                price=item_price,
+                quantity=cart_item.quantity,
+                subtotal=item_subtotal
+            ))
+        
+        # Get delivery fee from restaurant and parse it
+        delivery_fee = parse_delivery_fee(restaurant.get('delivery_fee'))
+        
+        # Calculate tax (assuming 8.5% tax rate, can be made configurable)
+        tax_rate = 0.085
+        tax = subtotal * tax_rate
+        
+        # Calculate total
+        total = subtotal + delivery_fee + tax
+        
+        # Generate receipt ID
+        receipt_id = generate_receipt_id()
+        
+        # Create receipt document
+        receipt_data = {
+            "receipt_id": receipt_id,
+            "restaurant_id": request.restaurant_id,
+            "restaurant_name": restaurant.get('name'),
+            "items": [item.dict() for item in receipt_items],
+            "subtotal": round(subtotal, 2),
+            "delivery_fee": round(delivery_fee, 2) if delivery_fee else None,
+            "tax": round(tax, 2),
+            "total": round(total, 2),
+            "delivery_id": request.delivery_id,
+            "customer_name": request.customer_name,
+            "customer_email": request.customer_email,
+            "customer_phone": request.customer_phone,
+            "delivery_address": request.delivery_address,
+            "created_at": datetime.utcnow().isoformat() + "Z"
+        }
+        
+        # Save receipt to database
+        receipt_mongo_id = db_service.create_receipt(receipt_data)
+        
+        # Build response
+        return ReceiptResponse(
+            _id=receipt_mongo_id,
+            receipt_id=receipt_id,
+            restaurant_id=request.restaurant_id,
+            restaurant_name=restaurant.get('name'),
+            items=receipt_items,
+            subtotal=round(subtotal, 2),
+            delivery_fee=round(delivery_fee, 2) if delivery_fee else None,
+            tax=round(tax, 2),
+            total=round(total, 2),
+            delivery_id=request.delivery_id,
+            customer_name=request.customer_name,
+            customer_email=request.customer_email,
+            customer_phone=request.customer_phone,
+            delivery_address=request.delivery_address,
+            created_at=receipt_data["created_at"]
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error creating receipt: {str(e)}")
