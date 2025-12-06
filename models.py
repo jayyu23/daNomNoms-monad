@@ -482,3 +482,31 @@ class ReceiptResponse(BaseModel):
                 "created_at": "2024-01-01T12:00:00Z"
             }
         }
+
+
+class AgentRequest(BaseModel):
+    """Request model for agent chat endpoint."""
+    prompt: str = Field(..., description="User prompt/question for the agent")
+    thread_id: Optional[str] = Field(None, description="Optional thread ID to continue a conversation. If not provided, a new thread will be created.")
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "prompt": "What's the weather like today?",
+                "thread_id": "thread_abc123"
+            }
+        }
+
+
+class AgentResponse(BaseModel):
+    """Response model for agent chat endpoint."""
+    response: str = Field(..., description="Agent's response to the user prompt")
+    thread_id: str = Field(..., description="Thread ID for continuing this conversation")
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "response": "I'd be happy to help you with that!",
+                "thread_id": "thread_abc123"
+            }
+        }

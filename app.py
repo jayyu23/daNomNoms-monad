@@ -5,6 +5,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from routers.restaurants import router as restaurants_router
 from routers.doordash import router as doordash_router
+from routers.agent import router as agent_router
 
 app = FastAPI(
     title="DaNomNoms API",
@@ -24,6 +25,7 @@ app.add_middleware(
 # Include routers
 app.include_router(restaurants_router)
 app.include_router(doordash_router)
+app.include_router(agent_router)
 
 
 @app.get("/")
@@ -40,7 +42,8 @@ async def root():
             "compute_cost_estimate": "POST /api/restaurants/cost-estimate",
             "create_receipt": "POST /api/restaurants/receipts",
             "create_delivery": "POST /api/doordash/deliveries",
-            "track_delivery": "GET /api/doordash/deliveries/{external_delivery_id}"
+            "track_delivery": "GET /api/doordash/deliveries/{external_delivery_id}",
+            "agent_chat": "POST /api/agent/chat"
         }
     }
 

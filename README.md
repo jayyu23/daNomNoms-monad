@@ -13,6 +13,7 @@ A REST API for the DaNomNoms food delivery service, integrating with DoorDash fo
   - [General Endpoints](#general-endpoints)
   - [Restaurant Endpoints](#restaurant-endpoints)
   - [DoorDash Delivery Endpoints](#doordash-delivery-endpoints)
+  - [Agent Endpoints](#agent-endpoints)
 
 ## Setup
 
@@ -47,6 +48,9 @@ MONGODB_URI=mongodb+srv://username:password@cluster.mongodb.net/?retryWrites=tru
 DOORDASH_DEVELOPER_ID=your_developer_id
 DOORDASH_KEY_ID=your_key_id
 DOORDASH_SIGNING_SECRET=your_signing_secret
+
+# OpenAI API key for agent endpoint
+OPEN_AI_API_KEY=your_openai_api_key
 ```
 
 **MongoDB Setup:**
@@ -57,6 +61,10 @@ DOORDASH_SIGNING_SECRET=your_signing_secret
 **DoorDash Credentials:**
 - Get your DoorDash credentials from the [DoorDash Developer Portal](https://developer.doordash.com/)
 - The `DOORDASH_SIGNING_SECRET` should be base64url encoded
+
+**OpenAI API Key:**
+- Get your API key from the [OpenAI Platform](https://platform.openai.com/api-keys)
+- Required for the agent chat endpoint using GPT-4o-mini
 
 ## Running the Server
 
@@ -95,6 +103,7 @@ This application can be easily deployed to [Render](https://render.com) for prod
    - `DOORDASH_DEVELOPER_ID`: Your DoorDash developer ID
    - `DOORDASH_KEY_ID`: Your DoorDash key ID
    - `DOORDASH_SIGNING_SECRET`: Your DoorDash signing secret (base64url encoded)
+   - `OPEN_AI_API_KEY`: Your OpenAI API key (for agent chat endpoint)
 
 6. **Deploy!** Render will automatically build and deploy your application
 
@@ -116,6 +125,7 @@ This application can be easily deployed to [Render](https://render.com) for prod
    - `DOORDASH_DEVELOPER_ID`: Your DoorDash developer ID
    - `DOORDASH_KEY_ID`: Your DoorDash key ID
    - `DOORDASH_SIGNING_SECRET`: Your DoorDash signing secret
+   - `OPEN_AI_API_KEY`: Your OpenAI API key (for agent chat endpoint)
 
 5. **Click "Create Web Service"** and wait for deployment
 
@@ -169,7 +179,8 @@ Root endpoint that lists all available API endpoints.
     "compute_cost_estimate": "POST /api/restaurants/cost-estimate",
     "create_receipt": "POST /api/restaurants/receipts",
     "create_delivery": "POST /api/doordash/deliveries",
-    "track_delivery": "GET /api/doordash/deliveries/{external_delivery_id}"
+    "track_delivery": "GET /api/doordash/deliveries/{external_delivery_id}",
+    "agent_chat": "POST /api/agent/chat"
   }
 }
 ```
@@ -627,6 +638,68 @@ curl "https://danomnoms-api.onrender.com/api/doordash/deliveries/D-12345"
 - `delivery_confirmed`: Delivery has been confirmed
 - `enroute_to_dropoff`: Dasher is on the way to drop off the order
 - `delivered`: Delivery has been completed
+
+---
+
+### Agent Endpoints
+
+All agent endpoints are prefixed with `/api/agent`
+
+**Note:** These endpoints require an OpenAI API key to be configured in your `.env` file as `OPEN_AI_API_KEY`. The agent uses GPT-4o-mini model with conversation memory support.
+
+#### POST `/api/agent/chat`
+
+Chat with GPT-4o-mini agent with conversation memory.
+
+This endpoint allows you to have a conversation with an AI agent powered by GPT-4o-mini. The agent maintains conversation context through thread IDs, allowing for multi-turn conversations.
+
+**Request Body:**
+```json
+{
+  "prompt": "Hello, what can you help me with?",
+  "thread_id": "thread_abc123"
+}
+```
+
+**Required Fields:**
+- `prompt`: User prompt/question for the agent
+
+**Optional Fields:**
+- `thread_id`: Thread ID to continue a conversation. If not provided, a new thread will be created automatically.
+
+**Response:**
+```json
+{
+  "response": "Hello! I'm here to help you with various tasks. I can answer questions, provide information, help with problem-solving, and much more. What would you like to know?",
+  "thread_id": "thread_abc123"
+}
+```
+
+**Example - Start a new conversation:**
+```bash
+curl -X POST https://danomnoms-api.onrender.com/api/agent/chat \
+  -H "Content-Type: application/json" \
+  -d '{
+    "prompt": "Hello, what can you help me with?"
+  }'
+```
+
+**Example - Continue a conversation:**
+```bash
+curl -X POST https://danomnoms-api.onrender.com/api/agent/chat \
+  -H "Content-Type: application/json" \
+  -d '{
+    "prompt": "What did I just ask you?",
+    "thread_id": "thread_abc123"
+  }'
+```
+
+**Notes:**
+- Each conversation thread maintains its own memory and context
+- Use the `thread_id` from the response to continue the same conversation
+- If you don't provide a `thread_id`, a new conversation thread will be created
+- Conversation history is stored in memory per thread and is used to maintain context across messages
+- The agent uses GPT-4o-mini model with a temperature of 0.7 and maximum of 1000 tokens per response
 
 ---
 
