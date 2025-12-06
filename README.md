@@ -645,13 +645,22 @@ curl "https://danomnoms-api.onrender.com/api/doordash/deliveries/D-12345"
 
 All agent endpoints are prefixed with `/api/agent`
 
-**Note:** These endpoints require an OpenAI API key to be configured in your `.env` file as `OPEN_AI_API_KEY`. The agent uses GPT-4o-mini model with conversation memory support.
+**Note:** These endpoints require an OpenAI API key to be configured in your `.env` file as `OPEN_AI_API_KEY`. The agent uses GPT-4o-mini model with conversation memory support and GPT Actions (function calling) to interact with all API endpoints.
 
 #### POST `/api/agent/chat`
 
-Chat with GPT-4o-mini agent with conversation memory.
+Chat with GPT-4o-mini agent with conversation memory and GPT Actions.
 
-This endpoint allows you to have a conversation with an AI agent powered by GPT-4o-mini. The agent maintains conversation context through thread IDs, allowing for multi-turn conversations.
+This endpoint allows you to have a conversation with an AI agent powered by GPT-4o-mini. The agent maintains conversation context through thread IDs, allowing for multi-turn conversations. **Most importantly, the agent can automatically call any of the API endpoints below using GPT Actions (function calling)**, making it capable of:
+
+- Browsing restaurants and viewing menus
+- Getting item details
+- Building shopping carts
+- Computing cost estimates
+- Creating receipts for orders
+- Creating and tracking DoorDash deliveries
+
+The agent will automatically decide when to call API functions based on your requests, making it a powerful conversational interface to the entire DaNomNoms API.
 
 **Request Body:**
 ```json
@@ -694,12 +703,67 @@ curl -X POST https://danomnoms-api.onrender.com/api/agent/chat \
   }'
 ```
 
+**Example - Using GPT Actions (the agent calls API endpoints automatically):**
+
+The agent can automatically call API endpoints based on your natural language requests:
+
+```bash
+# Agent will automatically call list_restaurants function
+curl -X POST https://danomnoms-api.onrender.com/api/agent/chat \
+  -H "Content-Type: application/json" \
+  -d '{
+    "prompt": "What restaurants are available? Show me the first 5."
+  }'
+
+# Agent will call get_restaurant_menu function automatically
+curl -X POST https://danomnoms-api.onrender.com/api/agent/chat \
+  -H "Content-Type: application/json" \
+  -d '{
+    "prompt": "Show me the menu for restaurant with ID 69347db4fa0aa2fde8fdaeb3",
+    "thread_id": "thread_abc123"
+  }'
+
+# Agent can handle complex multi-step requests
+curl -X POST https://danomnoms-api.onrender.com/api/agent/chat \
+  -H "Content-Type: application/json" \
+  -d '{
+    "prompt": "Find me a restaurant, show me its menu, and build a cart with 2 burgers",
+    "thread_id": "thread_abc123"
+  }'
+
+# Agent can track deliveries
+curl -X POST https://danomnoms-api.onrender.com/api/agent/chat \
+  -H "Content-Type: application/json" \
+  -d '{
+    "prompt": "Track the delivery status for delivery D-12345",
+    "thread_id": "thread_abc123"
+  }'
+```
+
+**Available GPT Actions (Functions):**
+
+The agent has access to all of the following API endpoints as functions:
+
+1. **`list_restaurants`** - List all restaurants with pagination (supports `limit` and `skip` parameters)
+2. **`get_restaurant_menu`** - Get menu items for a specific restaurant
+3. **`get_menu_item`** - Get details of a specific menu item by ID
+4. **`build_cart`** - Build a shopping cart with items from a restaurant
+5. **`compute_cost_estimate`** - Compute cost estimate for a cart without building the full cart
+6. **`create_receipt`** - Create a receipt for a completed order
+7. **`create_delivery`** - Create a new DoorDash delivery
+8. **`track_delivery`** - Get the status of a DoorDash delivery by external delivery ID
+
+The agent will automatically determine which functions to call and in what order based on your natural language requests.
+
 **Notes:**
 - Each conversation thread maintains its own memory and context
 - Use the `thread_id` from the response to continue the same conversation
 - If you don't provide a `thread_id`, a new conversation thread will be created
 - Conversation history is stored in memory per thread and is used to maintain context across messages
 - The agent uses GPT-4o-mini model with a temperature of 0.7 and maximum of 1000 tokens per response
+- **GPT Actions**: The agent can automatically call API endpoints (functions) based on your requests, allowing for complex multi-step operations
+- All API calls are made to `https://danomnoms-api.onrender.com` as the base URL
+- The agent supports up to 10 iterations of function calls in a single conversation turn to handle complex workflows
 
 ---
 

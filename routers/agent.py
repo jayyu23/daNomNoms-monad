@@ -1,9 +1,11 @@
 """
-Agent API endpoints for GPT-4o-mini integration.
+Agent API endpoints for GPT-4o-mini integration with Actions (function calling).
 """
 import os
 import uuid
-from typing import Dict, List
+import json
+import requests
+from typing import Dict, List, Any, Optional
 from dotenv import load_dotenv
 from fastapi import APIRouter, HTTPException
 from openai import OpenAI
@@ -13,6 +15,9 @@ from models import AgentRequest, AgentResponse
 load_dotenv()
 
 router = APIRouter(prefix="/api/agent", tags=["agent"])
+
+# Base URL for the API
+API_BASE_URL = "https://danomnoms-api.onrender.com"
 
 
 def get_openai_client() -> OpenAI:
@@ -33,12 +38,373 @@ def get_openai_client() -> OpenAI:
         )
     return OpenAI(api_key=api_key)
 
+
+def get_gpt_tools() -> List[Dict[str, Any]]:
+    """
+    Define GPT Actions (tools) for all available API endpoints.
+    
+    Returns:
+        List of tool definitions for OpenAI function calling
+    """
+    return [
+        {
+            "type": "function",
+            "function": {
+                "name": "list_restaurants",
+                "description": "List all restaurants with pagination. Use this to browse available restaurants, filter by limit and skip for pagination.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "limit": {
+                            "type": "integer",
+                            "description": "Maximum number of restaurants to return (1-1000, default: 100)",
+                            "minimum": 1,
+                            "maximum": 1000
+                        },
+                        "skip": {
+                            "type": "integer",
+                            "description": "Number of restaurants to skip for pagination (default: 0)",
+                            "minimum": 0
+                        }
+                    }
+                }
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "get_restaurant_menu",
+                "description": "Get menu items for a specific restaurant. Use the restaurant_id from list_restaurants.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "restaurant_id": {
+                            "type": "string",
+                            "description": "MongoDB _id of the restaurant"
+                        }
+                    },
+                    "required": ["restaurant_id"]
+                }
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "get_menu_item",
+                "description": "Get details of a specific menu item by its ID.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "item_id": {
+                            "type": "string",
+                            "description": "MongoDB _id of the menu item"
+                        }
+                    },
+                    "required": ["item_id"]
+                }
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "build_cart",
+                "description": "Build a shopping cart with items from a restaurant. Use this to add items to a cart before checkout.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "restaurant_id": {
+                            "type": "string",
+                            "description": "MongoDB _id of the restaurant"
+                        },
+                        "items": {
+                            "type": "array",
+                            "description": "List of items to add to cart",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "item_id": {
+                                        "type": "string",
+                                        "description": "MongoDB _id of the menu item"
+                                    },
+                                    "quantity": {
+                                        "type": "integer",
+                                        "description": "Quantity of the item (minimum 1)",
+                                        "minimum": 1
+                                    }
+                                },
+                                "required": ["item_id", "quantity"]
+                            },
+                            "minItems": 1
+                        }
+                    },
+                    "required": ["restaurant_id", "items"]
+                }
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "compute_cost_estimate",
+                "description": "Compute cost estimate for a cart without building the full cart. Use this to get pricing information before building the cart.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "restaurant_id": {
+                            "type": "string",
+                            "description": "MongoDB _id of the restaurant"
+                        },
+                        "items": {
+                            "type": "array",
+                            "description": "List of items in cart",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "item_id": {
+                                        "type": "string",
+                                        "description": "MongoDB _id of the menu item"
+                                    },
+                                    "quantity": {
+                                        "type": "integer",
+                                        "description": "Quantity of the item (minimum 1)",
+                                        "minimum": 1
+                                    }
+                                },
+                                "required": ["item_id", "quantity"]
+                            },
+                            "minItems": 1
+                        }
+                    },
+                    "required": ["restaurant_id", "items"]
+                }
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "create_receipt",
+                "description": "Create a receipt for a completed order. Use this to finalize an order after building a cart.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "restaurant_id": {
+                            "type": "string",
+                            "description": "MongoDB _id of the restaurant"
+                        },
+                        "items": {
+                            "type": "array",
+                            "description": "List of items in the order",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "item_id": {
+                                        "type": "string",
+                                        "description": "MongoDB _id of the menu item"
+                                    },
+                                    "quantity": {
+                                        "type": "integer",
+                                        "description": "Quantity of the item (minimum 1)",
+                                        "minimum": 1
+                                    }
+                                },
+                                "required": ["item_id", "quantity"]
+                            },
+                            "minItems": 1
+                        },
+                        "delivery_id": {
+                            "type": "string",
+                            "description": "Optional DoorDash delivery external_delivery_id if linked to a delivery"
+                        },
+                        "customer_name": {
+                            "type": "string",
+                            "description": "Customer name"
+                        },
+                        "customer_email": {
+                            "type": "string",
+                            "description": "Customer email"
+                        },
+                        "customer_phone": {
+                            "type": "string",
+                            "description": "Customer phone number"
+                        },
+                        "delivery_address": {
+                            "type": "string",
+                            "description": "Delivery address"
+                        }
+                    },
+                    "required": ["restaurant_id", "items"]
+                }
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "create_delivery",
+                "description": "Create a new DoorDash delivery. Use this to set up delivery for an order.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "external_delivery_id": {
+                            "type": "string",
+                            "description": "Unique identifier for the delivery"
+                        },
+                        "pickup_address": {
+                            "type": "string",
+                            "description": "Pickup address"
+                        },
+                        "pickup_business_name": {
+                            "type": "string",
+                            "description": "Business name for pickup location"
+                        },
+                        "pickup_phone_number": {
+                            "type": "string",
+                            "description": "Phone number for pickup location"
+                        },
+                        "dropoff_address": {
+                            "type": "string",
+                            "description": "Dropoff address"
+                        },
+                        "dropoff_phone_number": {
+                            "type": "string",
+                            "description": "Phone number for dropoff location"
+                        },
+                        "pickup_instructions": {
+                            "type": "string",
+                            "description": "Special instructions for pickup"
+                        },
+                        "pickup_reference_tag": {
+                            "type": "string",
+                            "description": "Reference tag for pickup"
+                        },
+                        "dropoff_business_name": {
+                            "type": "string",
+                            "description": "Business name for dropoff location"
+                        },
+                        "dropoff_instructions": {
+                            "type": "string",
+                            "description": "Special instructions for dropoff"
+                        },
+                        "dropoff_contact_given_name": {
+                            "type": "string",
+                            "description": "Contact first name"
+                        },
+                        "dropoff_contact_family_name": {
+                            "type": "string",
+                            "description": "Contact last name"
+                        },
+                        "order_value": {
+                            "type": "integer",
+                            "description": "Order value in cents"
+                        }
+                    },
+                    "required": [
+                        "external_delivery_id",
+                        "pickup_address",
+                        "pickup_business_name",
+                        "pickup_phone_number",
+                        "dropoff_address",
+                        "dropoff_phone_number"
+                    ]
+                }
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "track_delivery",
+                "description": "Get the status of a DoorDash delivery by external delivery ID. Use this to check delivery status after creating a delivery.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "external_delivery_id": {
+                            "type": "string",
+                            "description": "The external delivery ID used when creating the delivery"
+                        }
+                    },
+                    "required": ["external_delivery_id"]
+                }
+            }
+        }
+    ]
+
+
+def execute_function_call(function_name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Execute a function call by making an HTTP request to the API.
+    
+    Args:
+        function_name: Name of the function to call
+        arguments: Function arguments
+        
+    Returns:
+        Function execution result
+    """
+    try:
+        if function_name == "list_restaurants":
+            limit = arguments.get("limit", 100)
+            skip = arguments.get("skip", 0)
+            url = f"{API_BASE_URL}/api/restaurants/?limit={limit}&skip={skip}"
+            response = requests.get(url, timeout=30)
+            
+        elif function_name == "get_restaurant_menu":
+            restaurant_id = arguments.get("restaurant_id")
+            url = f"{API_BASE_URL}/api/restaurants/{restaurant_id}/menu"
+            response = requests.get(url, timeout=30)
+            
+        elif function_name == "get_menu_item":
+            item_id = arguments.get("item_id")
+            url = f"{API_BASE_URL}/api/restaurants/items/{item_id}"
+            response = requests.get(url, timeout=30)
+            
+        elif function_name == "build_cart":
+            url = f"{API_BASE_URL}/api/restaurants/cart"
+            response = requests.post(url, json=arguments, timeout=30)
+            
+        elif function_name == "compute_cost_estimate":
+            url = f"{API_BASE_URL}/api/restaurants/cost-estimate"
+            response = requests.post(url, json=arguments, timeout=30)
+            
+        elif function_name == "create_receipt":
+            url = f"{API_BASE_URL}/api/restaurants/receipts"
+            response = requests.post(url, json=arguments, timeout=30)
+            
+        elif function_name == "create_delivery":
+            url = f"{API_BASE_URL}/api/doordash/deliveries"
+            response = requests.post(url, json=arguments, timeout=30)
+            
+        elif function_name == "track_delivery":
+            external_delivery_id = arguments.get("external_delivery_id")
+            url = f"{API_BASE_URL}/api/doordash/deliveries/{external_delivery_id}"
+            response = requests.get(url, timeout=30)
+            
+        else:
+            return {
+                "error": f"Unknown function: {function_name}"
+            }
+        
+        # Handle response
+        if response.status_code >= 200 and response.status_code < 300:
+            return response.json()
+        else:
+            return {
+                "error": f"API error (status {response.status_code}): {response.text}"
+            }
+            
+    except requests.exceptions.RequestException as e:
+        return {
+            "error": f"Request error: {str(e)}"
+        }
+    except Exception as e:
+        return {
+            "error": f"Unexpected error: {str(e)}"
+        }
+
+
 # In-memory storage for conversation threads
-# Format: {thread_id: [{"role": "user"|"assistant", "content": "..."}, ...]}
-conversation_threads: Dict[str, List[Dict[str, str]]] = {}
+# Format: {thread_id: [{"role": "user"|"assistant"|"function", "content": "...", ...}, ...]}
+conversation_threads: Dict[str, List[Dict[str, Any]]] = {}
 
 
-def get_or_create_thread(thread_id: str) -> List[Dict[str, str]]:
+def get_or_create_thread(thread_id: str) -> List[Dict[str, Any]]:
     """
     Get conversation history for a thread, or create a new thread if it doesn't exist.
     
@@ -61,11 +427,12 @@ def generate_thread_id() -> str:
 @router.post("/chat", response_model=AgentResponse)
 async def agent_chat(request: AgentRequest):
     """
-    Chat with GPT-4o-mini agent with conversation memory.
+    Chat with GPT-4o-mini agent with conversation memory and GPT Actions.
     
     This endpoint takes a user prompt and returns a response from GPT-4o-mini.
-    If a thread_id is provided, the conversation continues from that thread's history.
-    If no thread_id is provided, a new conversation thread is created.
+    The agent can call external API functions (Actions) to interact with restaurants
+    and DoorDash delivery services. If a thread_id is provided, the conversation 
+    continues from that thread's history.
     
     Args:
         request: Agent chat request with prompt and optional thread_id
@@ -78,7 +445,7 @@ async def agent_chat(request: AgentRequest):
     curl -X POST http://localhost:8000/api/agent/chat \
       -H "Content-Type: application/json" \
       -d '{
-        "prompt": "Hello, what can you help me with?",
+        "prompt": "What restaurants are available?",
         "thread_id": "thread_abc123"
       }'
     ```
@@ -97,25 +464,120 @@ async def agent_chat(request: AgentRequest):
             "content": request.prompt
         })
         
-        # Call OpenAI API with conversation history
-        response = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=conversation_history,
-            temperature=0.7,
-            max_tokens=1000
-        )
+        # Get available tools
+        tools = get_gpt_tools()
         
-        # Extract assistant's response
-        assistant_message = response.choices[0].message.content
+        # Initial system message to set context
+        system_message = {
+            "role": "system",
+            "content": "You are a helpful assistant for the DaNomNoms food delivery service. You can help users browse restaurants, view menus, build carts, create orders, and manage deliveries. Use the available functions to interact with the API when needed."
+        }
         
-        # Add assistant's response to conversation history
-        conversation_history.append({
-            "role": "assistant",
-            "content": assistant_message
-        })
+        # Prepare messages with system message first (only if thread is new)
+        messages = [system_message] if len(conversation_history) == 1 else []
+        messages.extend(conversation_history)
+        
+        # Call OpenAI API with conversation history and tools
+        max_iterations = 10  # Prevent infinite loops
+        iteration = 0
+        final_response = ""
+        
+        while iteration < max_iterations:
+            # Format messages for OpenAI API (exclude tool_calls from dict format)
+            api_messages = []
+            for msg in messages:
+                if msg.get("role") == "tool":
+                    api_messages.append({
+                        "role": "tool",
+                        "tool_call_id": msg.get("tool_call_id"),
+                        "content": msg.get("content")
+                    })
+                elif msg.get("role") == "assistant" and msg.get("tool_calls"):
+                    # For assistant messages with tool calls, OpenAI expects a specific format
+                    assistant_msg = {
+                        "role": "assistant",
+                        "content": msg.get("content") or None,
+                        "tool_calls": msg.get("tool_calls")
+                    }
+                    api_messages.append(assistant_msg)
+                else:
+                    api_messages.append({
+                        "role": msg.get("role"),
+                        "content": msg.get("content")
+                    })
+            
+            response = client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=api_messages,
+                tools=tools,
+                tool_choice="auto",
+                temperature=0.7,
+                max_tokens=1000
+            )
+            
+            assistant_message = response.choices[0].message
+            
+            # Prepare assistant message for storage
+            assistant_msg_dict = {
+                "role": "assistant",
+                "content": assistant_message.content
+            }
+            
+            # Handle tool calls if present
+            if assistant_message.tool_calls:
+                assistant_msg_dict["tool_calls"] = [
+                    {
+                        "id": tc.id,
+                        "type": tc.type,
+                        "function": {
+                            "name": tc.function.name,
+                            "arguments": tc.function.arguments
+                        }
+                    } for tc in assistant_message.tool_calls
+                ]
+            
+            # Add assistant's message to messages
+            messages.append(assistant_msg_dict)
+            
+            # If no tool calls, we're done - this is the final response
+            if not assistant_message.tool_calls:
+                final_response = assistant_message.content or ""
+                break
+            
+            # Execute tool calls
+            for tool_call in assistant_message.tool_calls:
+                function_name = tool_call.function.name
+                try:
+                    function_args = json.loads(tool_call.function.arguments)
+                except json.JSONDecodeError:
+                    function_args = {}
+                
+                # Execute the function call
+                function_result = execute_function_call(function_name, function_args)
+                
+                # Add function result to messages
+                messages.append({
+                    "role": "tool",
+                    "tool_call_id": tool_call.id,
+                    "content": json.dumps(function_result)
+                })
+            
+            iteration += 1
+        
+        # If we hit max iterations without a final response, get the last assistant message
+        if not final_response:
+            for msg in reversed(messages):
+                if msg.get("role") == "assistant" and msg.get("content"):
+                    final_response = msg.get("content")
+                    break
+        
+        # Update conversation history (excluding system message)
+        conversation_threads[thread_id] = [
+            msg for msg in messages if msg.get("role") != "system"
+        ]
         
         return AgentResponse(
-            response=assistant_message,
+            response=final_response or "I apologize, but I encountered an issue processing your request.",
             thread_id=thread_id
         )
         
@@ -126,4 +588,3 @@ async def agent_chat(request: AgentRequest):
             status_code=500,
             detail=f"Error communicating with OpenAI API: {str(e)}"
         )
-
