@@ -340,7 +340,8 @@ def execute_function_call(function_name: str, arguments: Dict[str, Any]) -> Dict
     """
     try:
         if function_name == "list_restaurants":
-            limit = arguments.get("limit", 100)
+            # Limit default to 10 restaurants to prevent token overflow
+            limit = min(arguments.get("limit", 10), 50)  # Max 50 restaurants
             skip = arguments.get("skip", 0)
             url = f"{API_BASE_URL}/api/restaurants/?limit={limit}&skip={skip}"
             response = requests.get(url, timeout=30)
@@ -383,7 +384,22 @@ def execute_function_call(function_name: str, arguments: Dict[str, Any]) -> Dict
         
         # Handle response
         if response.status_code >= 200 and response.status_code < 300:
-            return response.json()
+            result = response.json()
+            
+            # Limit large responses to prevent token overflow
+            if function_name == "list_restaurants" and isinstance(result, dict) and "restaurants" in result:
+                # Limit to first 10 restaurants to prevent token overflow
+                if len(result["restaurants"]) > 10:
+                    result["restaurants"] = result["restaurants"][:10]
+                    result["total"] = min(result.get("total", 0), 10)
+            
+            # For menu items, limit to first 20 items
+            elif function_name == "get_restaurant_menu" and isinstance(result, dict) and "items" in result:
+                if len(result["items"]) > 20:
+                    result["items"] = result["items"][:20]
+                    result["total_items"] = min(result.get("total_items", 0), 20)
+            
+            return result
         else:
             return {
                 "error": f"API error (status {response.status_code}): {response.text}"
@@ -402,6 +418,48 @@ def execute_function_call(function_name: str, arguments: Dict[str, Any]) -> Dict
 # In-memory storage for conversation threads
 # Format: {thread_id: [{"role": "user"|"assistant"|"function", "content": "...", ...}, ...]}
 conversation_threads: Dict[str, List[Dict[str, Any]]] = {}
+
+
+def trim_conversation_history(messages: List[Dict[str, Any]], max_messages: int = 20) -> List[Dict[str, Any]]:
+    """
+    Trim conversation history to keep only the most recent messages.
+    This prevents token overflow by maintaining a sliding window of recent messages.
+    
+    Args:
+        messages: Full conversation history
+        max_messages: Maximum number of messages to keep (default: 20 for better token management)
+        
+    Returns:
+        Trimmed conversation history
+    """
+    if len(messages) <= max_messages:
+        return messages
+    
+    # Keep system message if present, then keep the most recent messages
+    system_msgs = [msg for msg in messages if msg.get("role") == "system"]
+    non_system_msgs = [msg for msg in messages if msg.get("role") != "system"]
+    
+    # Keep the most recent non-system messages
+    trimmed_non_system = non_system_msgs[-max_messages:] if len(non_system_msgs) > max_messages else non_system_msgs
+    
+    # Combine system messages with trimmed history
+    return system_msgs + trimmed_non_system
+
+
+def truncate_large_content(content: str, max_length: int = 3000) -> str:
+    """
+    Truncate large content strings to prevent token overflow.
+    
+    Args:
+        content: Content string to truncate
+        max_length: Maximum length before truncation (reduced to 3000 for safety)
+        
+    Returns:
+        Truncated content with indication if it was truncated
+    """
+    if isinstance(content, str) and len(content) > max_length:
+        return content[:max_length] + "\n\n[Content truncated due to length...]"
+    return content
 
 
 def get_or_create_thread(thread_id: str) -> List[Dict[str, Any]]:
@@ -457,6 +515,9 @@ async def agent_chat(request: AgentRequest):
         # Get or create thread
         thread_id = request.thread_id or generate_thread_id()
         conversation_history = get_or_create_thread(thread_id)
+        
+        # Trim conversation history to prevent token overflow (keep last 20 messages)
+        conversation_history = trim_conversation_history(conversation_history, max_messages=20)
         
         # Add user message to conversation history
         conversation_history.append({
@@ -555,11 +616,15 @@ async def agent_chat(request: AgentRequest):
                 # Execute the function call
                 function_result = execute_function_call(function_name, function_args)
                 
+                # Convert result to JSON string and truncate if too large
+                result_json = json.dumps(function_result)
+                truncated_result = truncate_large_content(result_json, max_length=5000)
+                
                 # Add function result to messages
                 messages.append({
                     "role": "tool",
                     "tool_call_id": tool_call.id,
-                    "content": json.dumps(function_result)
+                    "content": truncated_result
                 })
             
             iteration += 1
@@ -572,9 +637,9 @@ async def agent_chat(request: AgentRequest):
                     break
         
         # Update conversation history (excluding system message)
-        conversation_threads[thread_id] = [
-            msg for msg in messages if msg.get("role") != "system"
-        ]
+        # Trim again before saving to prevent unbounded growth
+        updated_history = [msg for msg in messages if msg.get("role") != "system"]
+        conversation_threads[thread_id] = trim_conversation_history(updated_history, max_messages=20)
         
         return AgentResponse(
             response=final_response or "I apologize, but I encountered an issue processing your request.",
