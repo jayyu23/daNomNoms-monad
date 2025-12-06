@@ -33,9 +33,9 @@ Set these in Render Dashboard → Your Service → Environment:
 
 ## After Deployment
 
-1. **Get your API URL**: `https://your-service-name.onrender.com`
-2. **Test health endpoint**: `https://your-service-name.onrender.com/health`
-3. **View API docs**: `https://your-service-name.onrender.com/docs`
+1. **Get your API URL**: `https://danomnoms-api.onrender.com`
+2. **Test health endpoint**: `https://danomnoms-api.onrender.com/health`
+3. **View API docs**: `https://danomnoms-api.onrender.com/docs`
 4. **Update CORS** in `app.py` if you have a frontend
 
 ## Troubleshooting
