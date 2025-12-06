@@ -340,7 +340,9 @@ def execute_function_call(function_name: str, arguments: Dict[str, Any]) -> Dict
         Function execution result
     """
     max_retries = 2
-    timeout = 90  # Increased timeout for Render free tier cold starts
+    # Render free tier spins down with inactivity and can delay requests by 50+ seconds
+    # Setting timeout to 120 seconds to accommodate cold starts
+    timeout = 120
     
     for attempt in range(max_retries + 1):
         try:
@@ -418,10 +420,10 @@ def execute_function_call(function_name: str, arguments: Dict[str, Any]) -> Dict
                 
         except requests.exceptions.Timeout:
             if attempt < max_retries:
-                time.sleep(2)  # Wait longer before retry on timeout
+                time.sleep(3)  # Wait longer before retry on timeout (cold start recovery)
                 continue
             return {
-                "error": "Request timeout: The API took too long to respond. This may be due to server cold start. Please try again."
+                "error": "Request timeout: The API took too long to respond. This may be due to server cold start (free tier can take 50+ seconds to wake up). Please try again - the next request should be faster once the server is awake."
             }
         except requests.exceptions.ConnectionError as e:
             if attempt < max_retries:
@@ -507,7 +509,7 @@ async def agent_chat(request: AgentRequest):
         
         system_message = {
             "role": "system",
-            "content": "You are a helpful assistant for the DaNomNoms food delivery service. You can help users browse restaurants, view menus, build carts, create orders, and manage deliveries. Use the available functions to interact with the API when needed."
+            "content": "You are a helpful assistant for the DaNomNoms food delivery service. You can help users browse restaurants, view menus, build carts, create orders, and manage deliveries. Use the available functions to interact with the API when needed. If you encounter temporary API errors or timeouts (especially on the first request after inactivity), be patient and retry - the server may be waking up from sleep mode."
         }
         
         messages = [system_message] if len(conversation_history) == 1 else []
