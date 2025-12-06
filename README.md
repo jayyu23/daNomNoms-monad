@@ -30,10 +30,10 @@ pip install -r requirements.txt
 uvicorn app:app --reload
 ```
 
-The API will be available at `http://localhost:8000`
+The API will be available at `https://danomnoms-api.onrender.com`
 
-Interactive API documentation (Swagger UI) is available at `http://localhost:8000/docs`
-Alternative API documentation (ReDoc) is available at `http://localhost:8000/redoc`
+Interactive API documentation (Swagger UI) is available at `https://danomnoms-api.onrender.com/docs`
+Alternative API documentation (ReDoc) is available at `https://danomnoms-api.onrender.com/redoc`
 
 ## Environment Variables
 
@@ -126,9 +126,9 @@ This application can be easily deployed to [Render](https://render.com) for prod
    - Example: `allow_origins=["https://your-frontend.vercel.app"]`
 
 2. **Access your API:**
-   - Your API will be available at: `https://your-service-name.onrender.com`
-   - API docs: `https://your-service-name.onrender.com/docs`
-   - Health check: `https://your-service-name.onrender.com/health`
+   - Your API will be available at: `https://danomnoms-api.onrender.com`
+   - API docs: `https://danomnoms-api.onrender.com/docs`
+   - Health check: `https://danomnoms-api.onrender.com/health`
 
 ### Important Notes
 
@@ -145,7 +145,7 @@ This application can be easily deployed to [Render](https://render.com) for prod
 
 ## API Documentation
 
-Base URL: `http://localhost:8000`
+Base URL: `https://danomnoms-api.onrender.com`
 
 All endpoints return JSON responses.
 
@@ -174,7 +174,7 @@ Root endpoint that lists all available API endpoints.
 
 **Example:**
 ```bash
-curl http://localhost:8000/
+curl https://danomnoms-api.onrender.com/
 ```
 
 #### GET `/health`
@@ -190,7 +190,7 @@ Health check endpoint.
 
 **Example:**
 ```bash
-curl http://localhost:8000/health
+curl https://danomnoms-api.onrender.com/health
 ```
 
 ---
@@ -234,7 +234,7 @@ List all restaurants with pagination.
 
 **Example:**
 ```bash
-curl "http://localhost:8000/api/restaurants/?limit=10&skip=0"
+curl "https://danomnoms-api.onrender.com/api/restaurants/?limit=10&skip=0"
 ```
 
 #### GET `/api/restaurants/{restaurant_id}/menu`
@@ -267,7 +267,7 @@ Get menu items for a specific restaurant.
 
 **Example:**
 ```bash
-curl "http://localhost:8000/api/restaurants/69347db4fa0aa2fde8fdaeb3/menu"
+curl "https://danomnoms-api.onrender.com/api/restaurants/69347db4fa0aa2fde8fdaeb3/menu"
 ```
 
 #### GET `/api/restaurants/items/{item_id}`
@@ -293,7 +293,7 @@ Get a single menu item by its ID.
 
 **Example:**
 ```bash
-curl "http://localhost:8000/api/restaurants/items/69347db5fa0aa2fde8fdaf17"
+curl "https://danomnoms-api.onrender.com/api/restaurants/items/69347db5fa0aa2fde8fdaf17"
 ```
 
 #### POST `/api/restaurants/cart`
@@ -340,7 +340,7 @@ Build a shopping cart with items from a restaurant.
 
 **Example:**
 ```bash
-curl -X POST http://localhost:8000/api/restaurants/cart \
+curl -X POST https://danomnoms-api.onrender.com/api/restaurants/cart \
   -H "Content-Type: application/json" \
   -d '{
     "restaurant_id": "69347db4fa0aa2fde8fdaeb3",
@@ -384,7 +384,7 @@ Compute cost estimate for a cart without building the full cart.
 
 **Example:**
 ```bash
-curl -X POST http://localhost:8000/api/restaurants/cost-estimate \
+curl -X POST https://danomnoms-api.onrender.com/api/restaurants/cost-estimate \
   -H "Content-Type: application/json" \
   -d '{
     "restaurant_id": "69347db4fa0aa2fde8fdaeb6",
@@ -466,7 +466,7 @@ Create a new DoorDash delivery.
 
 **Example:**
 ```bash
-curl -X POST http://localhost:8000/api/doordash/deliveries \
+curl -X POST https://danomnoms-api.onrender.com/api/doordash/deliveries \
   -H "Content-Type: application/json" \
   -d '{
     "external_delivery_id": "D-12345",
@@ -510,7 +510,7 @@ Get the status of a DoorDash delivery by external delivery ID.
 
 **Example:**
 ```bash
-curl "http://localhost:8000/api/doordash/deliveries/D-12345"
+curl "https://danomnoms-api.onrender.com/api/doordash/deliveries/D-12345"
 ```
 
 **Delivery Status Values:**
