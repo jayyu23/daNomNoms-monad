@@ -56,15 +56,15 @@ def get_gpt_tools() -> List[Dict[str, Any]]:
             "type": "function",
             "function": {
                 "name": "list_restaurants",
-                "description": "List all restaurants with pagination. Use this to browse available restaurants, filter by limit and skip for pagination.",
+                "description": "List all restaurants with pagination. CRITICAL: When searching for specific cuisines (e.g., Japanese, sushi, pizza), you MUST use limit=100 to get ALL restaurants. Restaurant cuisine information is in the 'description' field (e.g., '$ • Japanese, Fast Casual' or '$$ • Sushi, Salads'). You must search through all restaurants by calling with limit=100, then filter the results by searching the description field for the cuisine type.",
                 "parameters": {
                     "type": "object",
                     "properties": {
                         "limit": {
                             "type": "integer",
-                            "description": "Maximum number of restaurants to return (1-1000, default: 100)",
+                            "description": "Maximum number of restaurants to return (1-100, default: 100). MANDATORY: When searching for specific cuisines (Japanese, sushi, Italian, etc.), you MUST use limit=100 to get ALL restaurants. Using a smaller limit (like 10 or 50) will cause you to miss restaurants.",
                             "minimum": 1,
-                            "maximum": 1000
+                            "maximum": 100
                         },
                         "skip": {
                             "type": "integer",
@@ -345,14 +345,30 @@ def execute_function_call(function_name: str, arguments: Dict[str, Any]) -> Dict
     """
     try:
         if function_name == "list_restaurants":
-            limit = min(arguments.get("limit", 10), 50)
+            # Default to 100 to get all restaurants, allow up to 100
+            limit = min(arguments.get("limit", 100), 100)
             skip = arguments.get("skip", 0)
             result = restaurant_service.list_restaurants(limit=limit, skip=skip)
-            # Limit large responses to prevent token overflow
+            
+            # For large lists, return minimal data to prevent token overflow
+            # But keep description field for cuisine searching
             if isinstance(result, dict) and "restaurants" in result:
-                if len(result["restaurants"]) > 10:
-                    result["restaurants"] = result["restaurants"][:10]
-                    result["total"] = min(result.get("total", 0), 10)
+                restaurants = result["restaurants"]
+                # Always return minimal data when we have many restaurants to keep response manageable
+                if len(restaurants) > 20:
+                    # Return minimal data: only _id, name, description for filtering
+                    minimal_restaurants = []
+                    for r in restaurants:
+                        minimal_restaurants.append({
+                            "_id": r.get("_id"),
+                            "name": r.get("name"),
+                            "description": r.get("description"),
+                            "store_id": r.get("store_id")
+                        })
+                    result["restaurants"] = minimal_restaurants
+                    result["truncated"] = True
+                    result["note"] = f"Showing minimal data (id, name, description) for {len(minimal_restaurants)} restaurants. Use get_restaurant_menu for full details."
+            
             return result
             
         elif function_name == "get_restaurant_menu":
@@ -485,7 +501,7 @@ async def agent_chat(request: AgentRequest):
         
         system_message = {
             "role": "system",
-            "content": "You are a helpful assistant for the DaNomNoms food delivery service. You can help users browse restaurants, view menus, build carts, create orders, and manage deliveries. Use the available functions to interact with the API when needed. CRITICAL: When function calls return errors (check for 'success: false' or 'error' fields), you MUST show the user the exact error message from the function result. Do NOT say 'temporary issue' or 'unable to retrieve' - instead, quote the actual error message so the user knows what went wrong. If the error mentions timeout or cold start, explain that the server may be waking up."
+            "content": "You are a helpful assistant for the DaNomNoms food delivery service. You can help users browse restaurants, view menus, build carts, create orders, and manage deliveries. Use the available functions to interact with the API when needed. CRITICAL SEARCH INSTRUCTIONS FOR CUISINE REQUESTS: When a user asks for specific cuisine types (e.g., 'Japanese restaurants', 'I want sushi', 'show me Italian places'), you MUST: 1) FIRST call list_restaurants with limit=100 (not 10, not 50, but 100) to get ALL available restaurants, 2) EXAMINE each restaurant's 'description' field carefully - cuisine types are listed there (e.g., 'Japanese, Fast Casual', 'Sushi, Salads', 'Japanese, Sushi'), 3) FILTER the results to only show restaurants whose description contains the requested cuisine keyword (case-insensitive search), 4) PRESENT the filtered list to the user. Example: If user asks for Japanese, search for 'Japanese' or 'sushi' in description fields. IMPORTANT: Restaurant descriptions look like '$ • Japanese, Fast Casual' or '$$ • Sushi, Salads' - the cuisine appears after the price and bullet. Never say a cuisine is unavailable until you've searched through ALL 100 restaurants. If you receive a list of restaurants, you MUST search through ALL of them before concluding none match. CRITICAL: When function calls return errors (check for 'success: false' or 'error' fields), you MUST show the user the exact error message from the function result. Do NOT say 'temporary issue' or 'unable to retrieve' - instead, quote the actual error message so the user knows what went wrong."
         }
         
         messages = [system_message] if len(conversation_history) == 1 else []
@@ -574,7 +590,9 @@ async def agent_chat(request: AgentRequest):
                     }
                 
                 result_json = json.dumps(function_result)
-                truncated_result = truncate_large_content(result_json, max_length=5000)
+                # Use larger limit for restaurant lists to allow filtering
+                max_length = 15000 if function_name == "list_restaurants" else 5000
+                truncated_result = truncate_large_content(result_json, max_length=max_length)
                 
                 messages.append({
                     "role": "tool",
@@ -590,18 +608,37 @@ async def agent_chat(request: AgentRequest):
                     final_response = msg.get("content")
                     break
         
+        # If still no response, check for errors in tool results
+        if not final_response:
+            error_messages = []
+            for msg in messages:
+                if msg.get("role") == "tool":
+                    try:
+                        content = json.loads(msg.get("content", "{}"))
+                        if isinstance(content, dict) and "error" in content:
+                            error_messages.append(content.get("error", "Unknown error"))
+                    except:
+                        pass
+            
+            if error_messages:
+                final_response = f"I encountered an error: {error_messages[-1]}"
+            else:
+                final_response = "I apologize, but I encountered an issue processing your request. The agent may have exceeded the maximum iterations or encountered an unexpected error."
+        
         updated_history = [msg for msg in messages if msg.get("role") != "system"]
         conversation_threads[thread_id] = trim_conversation_history(updated_history, max_messages=20)
         
         return AgentResponse(
-            response=final_response or "I apologize, but I encountered an issue processing your request.",
+            response=final_response,
             thread_id=thread_id
         )
         
     except HTTPException:
         raise
     except Exception as e:
+        import traceback
+        error_detail = f"Error communicating with OpenAI API: {str(e)}\n{traceback.format_exc()}"
         raise HTTPException(
             status_code=500,
-            detail=f"Error communicating with OpenAI API: {str(e)}"
+            detail=error_detail
         )
