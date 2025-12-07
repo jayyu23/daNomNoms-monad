@@ -1,6 +1,7 @@
 """
 Database service module for MongoDB operations.
 """
+import re
 from typing import List, Dict, Any, Optional
 from pymongo.mongo_client import MongoClient
 from pymongo.database import Database
@@ -90,6 +91,32 @@ class DatabaseService:
         """
         restaurants_col = self.get_restaurants_collection()
         restaurant = restaurants_col.find_one({'store_id': store_id})
+        
+        if restaurant:
+            restaurant['_id'] = str(restaurant['_id'])
+            if 'items' in restaurant:
+                restaurant['items'] = [str(item_id) for item_id in restaurant['items']]
+        
+        return restaurant
+    
+    def get_restaurant_by_name(self, name: str) -> Optional[Dict[str, Any]]:
+        """
+        Get a restaurant by name (case-insensitive, exact match preferred, then partial match).
+        
+        Args:
+            name: Restaurant name to search for
+            
+        Returns:
+            Restaurant document or None if not found
+        """
+        restaurants_col = self.get_restaurants_collection()
+        
+        # First try exact case-insensitive match
+        restaurant = restaurants_col.find_one({'name': {'$regex': f'^{re.escape(name)}$', '$options': 'i'}})
+        
+        # If no exact match, try partial match
+        if not restaurant:
+            restaurant = restaurants_col.find_one({'name': {'$regex': re.escape(name), '$options': 'i'}})
         
         if restaurant:
             restaurant['_id'] = str(restaurant['_id'])
@@ -201,6 +228,68 @@ class DatabaseService:
             return items
         except Exception:
             return []
+    
+    def get_item_by_name(self, restaurant_id: str, item_name: str) -> Optional[Dict[str, Any]]:
+        """
+        Get a menu item by name within a restaurant (case-insensitive).
+        
+        Args:
+            restaurant_id: MongoDB _id of the restaurant
+            item_name: Name of the menu item to search for
+            
+        Returns:
+            Menu item document or None if not found
+        """
+        from bson import ObjectId
+        items_col = self.get_items_collection()
+        restaurants_col = self.get_restaurants_collection()
+        
+        try:
+            # Get restaurant to find its items
+            restaurant = restaurants_col.find_one({'_id': ObjectId(restaurant_id)})
+            if not restaurant:
+                return None
+            
+            # Get items for this restaurant
+            item_ids = restaurant.get('items', [])
+            store_id = restaurant.get('store_id')
+            
+            # Build query: search by name within this restaurant's items
+            query = {'name': {'$regex': f'^{re.escape(item_name)}$', '$options': 'i'}}
+            
+            if item_ids:
+                # First try exact match within restaurant's items
+                query['_id'] = {'$in': item_ids}
+                item = items_col.find_one(query)
+                
+                if item:
+                    item['_id'] = str(item['_id'])
+                    return item
+                
+                # If no exact match, try partial match
+                query['name'] = {'$regex': re.escape(item_name), '$options': 'i'}
+                item = items_col.find_one(query)
+                if item:
+                    item['_id'] = str(item['_id'])
+                    return item
+            elif store_id:
+                # Fallback: search by store_id and name
+                query['store_id'] = store_id
+                item = items_col.find_one(query)
+                if item:
+                    item['_id'] = str(item['_id'])
+                    return item
+                
+                # Try partial match
+                query['name'] = {'$regex': re.escape(item_name), '$options': 'i'}
+                item = items_col.find_one(query)
+                if item:
+                    item['_id'] = str(item['_id'])
+                    return item
+            
+            return None
+        except Exception:
+            return None
     
     def create_receipt(self, receipt_data: Dict[str, Any]) -> str:
         """

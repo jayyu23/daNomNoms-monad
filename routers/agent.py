@@ -18,11 +18,57 @@ from models import (
     CartItem
 )
 from services import restaurant_service, doordash_service
+from database import db_service
 
 # Load environment variables from .env file
 load_dotenv()
 
 router = APIRouter(prefix="/api/agent", tags=["agent"])
+
+
+def resolve_restaurant_name_to_id(restaurant_name: str) -> str:
+    """
+    Resolve restaurant name to restaurant ID.
+    
+    Args:
+        restaurant_name: Name of the restaurant
+        
+    Returns:
+        Restaurant MongoDB _id
+        
+    Raises:
+        ValueError: If restaurant not found
+    """
+    restaurant = db_service.get_restaurant_by_name(restaurant_name)
+    if not restaurant:
+        raise ValueError(f"Restaurant '{restaurant_name}' not found")
+    return str(restaurant['_id'])
+
+
+def resolve_item_name_to_id(restaurant_name: str, item_name: str) -> str:
+    """
+    Resolve item name to item ID within a restaurant.
+    
+    Args:
+        restaurant_name: Name of the restaurant
+        item_name: Name of the menu item
+        
+    Returns:
+        Item MongoDB _id
+        
+    Raises:
+        ValueError: If restaurant or item not found
+    """
+    restaurant = db_service.get_restaurant_by_name(restaurant_name)
+    if not restaurant:
+        raise ValueError(f"Restaurant '{restaurant_name}' not found")
+    
+    restaurant_id = str(restaurant['_id'])
+    item = db_service.get_item_by_name(restaurant_id, item_name)
+    if not item:
+        raise ValueError(f"Item '{item_name}' not found in restaurant '{restaurant_name}'")
+    
+    return str(item['_id'])
 
 
 def get_openai_client() -> OpenAI:
@@ -79,16 +125,16 @@ def get_gpt_tools() -> List[Dict[str, Any]]:
             "type": "function",
             "function": {
                 "name": "get_restaurant_menu",
-                "description": "Get menu items for a specific restaurant. Use the restaurant_id from list_restaurants.",
+                "description": "Get menu items for a specific restaurant by restaurant name. Use the restaurant name directly (e.g., 'U ME', 'Denny\\'s', 'Wasabi Saratoga'). The search is case-insensitive and will find exact or partial matches.",
                 "parameters": {
                     "type": "object",
                     "properties": {
-                        "restaurant_id": {
+                        "restaurant_name": {
                             "type": "string",
-                            "description": "MongoDB _id of the restaurant"
+                            "description": "Name of the restaurant (e.g., 'U ME', 'Denny\\'s', 'Wasabi Saratoga')"
                         }
                     },
-                    "required": ["restaurant_id"]
+                    "required": ["restaurant_name"]
                 }
             }
         },
@@ -96,16 +142,20 @@ def get_gpt_tools() -> List[Dict[str, Any]]:
             "type": "function",
             "function": {
                 "name": "get_menu_item",
-                "description": "Get details of a specific menu item by its ID.",
+                "description": "Get details of a specific menu item by restaurant name and item name. Use human-friendly names (e.g., restaurant_name: 'U ME', item_name: 'California Roll').",
                 "parameters": {
                     "type": "object",
                     "properties": {
-                        "item_id": {
+                        "restaurant_name": {
                             "type": "string",
-                            "description": "MongoDB _id of the menu item"
+                            "description": "Name of the restaurant (e.g., 'U ME', 'Denny's', 'Wasabi Saratoga')"
+                        },
+                        "item_name": {
+                            "type": "string",
+                            "description": "Name of the menu item (e.g., 'California Roll', 'Burger', 'Pad Thai')"
                         }
                     },
-                    "required": ["item_id"]
+                    "required": ["restaurant_name", "item_name"]
                 }
             }
         },
@@ -113,23 +163,23 @@ def get_gpt_tools() -> List[Dict[str, Any]]:
             "type": "function",
             "function": {
                 "name": "build_cart",
-                "description": "Build a shopping cart with items from a restaurant. Use this to add items to a cart before checkout.",
+                "description": "Build a shopping cart with items from a restaurant using restaurant and item names. Use human-friendly names (e.g., restaurant_name: 'U ME', items with item_name: 'California Roll').",
                 "parameters": {
                     "type": "object",
                     "properties": {
-                        "restaurant_id": {
+                        "restaurant_name": {
                             "type": "string",
-                            "description": "MongoDB _id of the restaurant"
+                            "description": "Name of the restaurant (e.g., 'U ME', 'Denny's', 'Wasabi Saratoga')"
                         },
                         "items": {
                             "type": "array",
-                            "description": "List of items to add to cart",
+                            "description": "List of items to add to cart using item names",
                             "items": {
                                 "type": "object",
                                 "properties": {
-                                    "item_id": {
+                                    "item_name": {
                                         "type": "string",
-                                        "description": "MongoDB _id of the menu item"
+                                        "description": "Name of the menu item (e.g., 'California Roll', 'Burger', 'Pad Thai')"
                                     },
                                     "quantity": {
                                         "type": "integer",
@@ -137,12 +187,12 @@ def get_gpt_tools() -> List[Dict[str, Any]]:
                                         "minimum": 1
                                     }
                                 },
-                                "required": ["item_id", "quantity"]
+                                "required": ["item_name", "quantity"]
                             },
                             "minItems": 1
                         }
                     },
-                    "required": ["restaurant_id", "items"]
+                    "required": ["restaurant_name", "items"]
                 }
             }
         },
@@ -150,23 +200,23 @@ def get_gpt_tools() -> List[Dict[str, Any]]:
             "type": "function",
             "function": {
                 "name": "compute_cost_estimate",
-                "description": "Compute cost estimate for a cart without building the full cart. Use this to get pricing information before building the cart.",
+                "description": "Compute cost estimate for a cart using restaurant and item names. Use human-friendly names (e.g., restaurant_name: 'U ME', items with item_name: 'California Roll').",
                 "parameters": {
                     "type": "object",
                     "properties": {
-                        "restaurant_id": {
+                        "restaurant_name": {
                             "type": "string",
-                            "description": "MongoDB _id of the restaurant"
+                            "description": "Name of the restaurant (e.g., 'U ME', 'Denny's', 'Wasabi Saratoga')"
                         },
                         "items": {
                             "type": "array",
-                            "description": "List of items in cart",
+                            "description": "List of items in cart using item names",
                             "items": {
                                 "type": "object",
                                 "properties": {
-                                    "item_id": {
+                                    "item_name": {
                                         "type": "string",
-                                        "description": "MongoDB _id of the menu item"
+                                        "description": "Name of the menu item (e.g., 'California Roll', 'Burger', 'Pad Thai')"
                                     },
                                     "quantity": {
                                         "type": "integer",
@@ -174,12 +224,12 @@ def get_gpt_tools() -> List[Dict[str, Any]]:
                                         "minimum": 1
                                     }
                                 },
-                                "required": ["item_id", "quantity"]
+                                "required": ["item_name", "quantity"]
                             },
                             "minItems": 1
                         }
                     },
-                    "required": ["restaurant_id", "items"]
+                    "required": ["restaurant_name", "items"]
                 }
             }
         },
@@ -187,23 +237,23 @@ def get_gpt_tools() -> List[Dict[str, Any]]:
             "type": "function",
             "function": {
                 "name": "create_receipt",
-                "description": "Create a receipt for a completed order. Use this to finalize an order after building a cart.",
+                "description": "Create a receipt for a completed order using restaurant and item names. Use human-friendly names (e.g., restaurant_name: 'U ME', items with item_name: 'California Roll').",
                 "parameters": {
                     "type": "object",
                     "properties": {
-                        "restaurant_id": {
+                        "restaurant_name": {
                             "type": "string",
-                            "description": "MongoDB _id of the restaurant"
+                            "description": "Name of the restaurant (e.g., 'U ME', 'Denny's', 'Wasabi Saratoga')"
                         },
                         "items": {
                             "type": "array",
-                            "description": "List of items in the order",
+                            "description": "List of items in the order using item names",
                             "items": {
                                 "type": "object",
                                 "properties": {
-                                    "item_id": {
+                                    "item_name": {
                                         "type": "string",
-                                        "description": "MongoDB _id of the menu item"
+                                        "description": "Name of the menu item (e.g., 'California Roll', 'Burger', 'Pad Thai')"
                                     },
                                     "quantity": {
                                         "type": "integer",
@@ -211,7 +261,7 @@ def get_gpt_tools() -> List[Dict[str, Any]]:
                                         "minimum": 1
                                     }
                                 },
-                                "required": ["item_id", "quantity"]
+                                "required": ["item_name", "quantity"]
                             },
                             "minItems": 1
                         },
@@ -236,7 +286,7 @@ def get_gpt_tools() -> List[Dict[str, Any]]:
                             "description": "Delivery address"
                         }
                     },
-                    "required": ["restaurant_id", "items"]
+                    "required": ["restaurant_name", "items"]
                 }
             }
         },
@@ -372,10 +422,10 @@ def execute_function_call(function_name: str, arguments: Dict[str, Any]) -> Dict
             return result
             
         elif function_name == "get_restaurant_menu":
-            restaurant_id = arguments.get("restaurant_id")
-            if not restaurant_id:
-                return {"error": "restaurant_id is required"}
-            result = restaurant_service.get_restaurant_menu(restaurant_id)
+            restaurant_name = arguments.get("restaurant_name")
+            if not restaurant_name:
+                return {"error": "restaurant_name is required"}
+            result = restaurant_service.get_restaurant_menu_by_name(restaurant_name)
             # Limit large responses to prevent token overflow
             if isinstance(result, dict) and "items" in result:
                 if len(result["items"]) > 20:
@@ -384,31 +434,108 @@ def execute_function_call(function_name: str, arguments: Dict[str, Any]) -> Dict
             return result
             
         elif function_name == "get_menu_item":
-            item_id = arguments.get("item_id")
-            if not item_id:
-                return {"error": "item_id is required"}
-            return restaurant_service.get_menu_item(item_id)
+            restaurant_name = arguments.get("restaurant_name")
+            item_name = arguments.get("item_name")
+            if not restaurant_name or not item_name:
+                return {"error": "restaurant_name and item_name are required"}
+            try:
+                item_id = resolve_item_name_to_id(restaurant_name, item_name)
+                return restaurant_service.get_menu_item(item_id)
+            except ValueError as e:
+                return {"error": str(e)}
             
         elif function_name == "build_cart":
+            restaurant_name = arguments.get("restaurant_name")
+            items = arguments.get("items", [])
+            if not restaurant_name or not items:
+                return {"error": "restaurant_name and items are required"}
+            
             try:
-                request = BuildCartRequest(**arguments)
+                # Resolve restaurant name to ID
+                restaurant_id = resolve_restaurant_name_to_id(restaurant_name)
+                
+                # Resolve item names to IDs
+                resolved_items = []
+                for item in items:
+                    item_name = item.get("item_name")
+                    quantity = item.get("quantity")
+                    if not item_name or not quantity:
+                        return {"error": "Each item must have item_name and quantity"}
+                    item_id = resolve_item_name_to_id(restaurant_name, item_name)
+                    resolved_items.append({"item_id": item_id, "quantity": quantity})
+                
+                # Create request with resolved IDs
+                request = BuildCartRequest(restaurant_id=restaurant_id, items=[CartItem(**item) for item in resolved_items])
+                return restaurant_service.build_cart(request)
+            except ValueError as e:
+                return {"error": str(e)}
             except Exception as e:
                 return {"error": f"Invalid request parameters: {str(e)}"}
-            return restaurant_service.build_cart(request)
             
         elif function_name == "compute_cost_estimate":
+            restaurant_name = arguments.get("restaurant_name")
+            items = arguments.get("items", [])
+            if not restaurant_name or not items:
+                return {"error": "restaurant_name and items are required"}
+            
             try:
-                request = CostEstimateRequest(**arguments)
+                # Resolve restaurant name to ID
+                restaurant_id = resolve_restaurant_name_to_id(restaurant_name)
+                
+                # Resolve item names to IDs
+                resolved_items = []
+                for item in items:
+                    item_name = item.get("item_name")
+                    quantity = item.get("quantity")
+                    if not item_name or not quantity:
+                        return {"error": "Each item must have item_name and quantity"}
+                    item_id = resolve_item_name_to_id(restaurant_name, item_name)
+                    resolved_items.append({"item_id": item_id, "quantity": quantity})
+                
+                # Create request with resolved IDs
+                request = CostEstimateRequest(restaurant_id=restaurant_id, items=[CartItem(**item) for item in resolved_items])
+                return restaurant_service.compute_cost_estimate(request)
+            except ValueError as e:
+                return {"error": str(e)}
             except Exception as e:
                 return {"error": f"Invalid request parameters: {str(e)}"}
-            return restaurant_service.compute_cost_estimate(request)
             
         elif function_name == "create_receipt":
+            restaurant_name = arguments.get("restaurant_name")
+            items = arguments.get("items", [])
+            if not restaurant_name or not items:
+                return {"error": "restaurant_name and items are required"}
+            
             try:
-                request = CreateReceiptRequest(**arguments)
+                # Resolve restaurant name to ID
+                restaurant_id = resolve_restaurant_name_to_id(restaurant_name)
+                
+                # Resolve item names to IDs
+                resolved_items = []
+                for item in items:
+                    item_name = item.get("item_name")
+                    quantity = item.get("quantity")
+                    if not item_name or not quantity:
+                        return {"error": "Each item must have item_name and quantity"}
+                    item_id = resolve_item_name_to_id(restaurant_name, item_name)
+                    resolved_items.append({"item_id": item_id, "quantity": quantity})
+                
+                # Create request with resolved IDs and other fields
+                receipt_args = {
+                    "restaurant_id": restaurant_id,
+                    "items": [CartItem(**item) for item in resolved_items]
+                }
+                # Add optional fields if provided
+                for field in ["delivery_id", "customer_name", "customer_email", "customer_phone", "delivery_address"]:
+                    if field in arguments:
+                        receipt_args[field] = arguments[field]
+                
+                request = CreateReceiptRequest(**receipt_args)
+                return restaurant_service.create_receipt(request)
+            except ValueError as e:
+                return {"error": str(e)}
             except Exception as e:
                 return {"error": f"Invalid request parameters: {str(e)}"}
-            return restaurant_service.create_receipt(request)
             
         elif function_name == "create_delivery":
             try:
@@ -501,7 +628,7 @@ async def agent_chat(request: AgentRequest):
         
         system_message = {
             "role": "system",
-            "content": "You are a helpful assistant for the DaNomNoms food delivery service. You can help users browse restaurants, view menus, build carts, create orders, and manage deliveries. Use the available functions to interact with the API when needed. CRITICAL SEARCH INSTRUCTIONS FOR CUISINE REQUESTS: When a user asks for specific cuisine types (e.g., 'Japanese restaurants', 'I want sushi', 'show me Italian places'), you MUST: 1) FIRST call list_restaurants with limit=100 (not 10, not 50, but 100) to get ALL available restaurants, 2) EXAMINE each restaurant's 'description' field carefully - cuisine types are listed there (e.g., 'Japanese, Fast Casual', 'Sushi, Salads', 'Japanese, Sushi'), 3) FILTER the results to only show restaurants whose description contains the requested cuisine keyword (case-insensitive search), 4) PRESENT the filtered list to the user. Example: If user asks for Japanese, search for 'Japanese' or 'sushi' in description fields. IMPORTANT: Restaurant descriptions look like '$ • Japanese, Fast Casual' or '$$ • Sushi, Salads' - the cuisine appears after the price and bullet. Never say a cuisine is unavailable until you've searched through ALL 100 restaurants. If you receive a list of restaurants, you MUST search through ALL of them before concluding none match. CRITICAL: When function calls return errors (check for 'success: false' or 'error' fields), you MUST show the user the exact error message from the function result. Do NOT say 'temporary issue' or 'unable to retrieve' - instead, quote the actual error message so the user knows what went wrong."
+            "content": "You are a helpful assistant for the DaNomNoms food delivery service. You can help users browse restaurants, view menus, build carts, create orders, and manage deliveries. Use the available functions to interact with the API when needed. CRITICAL SEARCH INSTRUCTIONS FOR CUISINE REQUESTS: When a user asks for specific cuisine types (e.g., 'Japanese restaurants', 'I want sushi', 'show me Italian places'), you MUST: 1) FIRST call list_restaurants with limit=100 (not 10, not 50, but 100) to get ALL available restaurants, 2) EXAMINE each restaurant's 'description' field carefully - cuisine types are listed there (e.g., 'Japanese, Fast Casual', 'Sushi, Salads', 'Japanese, Sushi'), 3) FILTER the results to only show restaurants whose description contains the requested cuisine keyword (case-insensitive search), 4) PRESENT the filtered list to the user. Example: If user asks for Japanese, search for 'Japanese' or 'sushi' in description fields. IMPORTANT: Restaurant descriptions look like '$ • Japanese, Fast Casual' or '$$ • Sushi, Salads' - the cuisine appears after the price and bullet. Never say a cuisine is unavailable until you've searched through ALL 100 restaurants. If you receive a list of restaurants, you MUST search through ALL of them before concluding none match. RESTAURANT MENU REQUESTS: When a user asks for a menu by restaurant name (e.g., 'Show me U ME menu', 'What does Denny's have?'), you can directly call get_restaurant_menu with the restaurant_name parameter. You don't need to look up IDs - just use the restaurant name the user provides. The search is case-insensitive and handles exact or partial matches. CRITICAL: When function calls return errors (check for 'success: false' or 'error' fields), you MUST show the user the exact error message from the function result. Do NOT say 'temporary issue' or 'unable to retrieve' - instead, quote the actual error message so the user knows what went wrong."
         }
         
         messages = [system_message] if len(conversation_history) == 1 else []

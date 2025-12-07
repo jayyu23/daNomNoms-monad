@@ -99,10 +99,28 @@ def list_restaurants(limit: int = 100, skip: int = 0) -> Dict[str, Any]:
     restaurants_data = db_service.list_restaurants(limit=limit, skip=skip)
     total_count = db_service.get_restaurants_collection().count_documents({})
     
-    restaurants = [RestaurantResponse(**restaurant) for restaurant in restaurants_data]
+    restaurants = []
+    for restaurant in restaurants_data:
+        # Ensure _id is always present and valid
+        if '_id' not in restaurant or restaurant.get('_id') is None:
+            # Skip restaurants without _id (shouldn't happen, but handle gracefully)
+            continue
+        try:
+            # Create Pydantic model instance
+            restaurant_obj = RestaurantResponse(**restaurant)
+            # Convert to dict using by_alias=False to ensure _id is included
+            restaurant_dict = restaurant_obj.dict(by_alias=False)
+            # Explicitly ensure _id is included and is a string
+            restaurant_dict['_id'] = str(restaurant.get('_id'))
+            restaurants.append(restaurant_dict)
+        except Exception as e:
+            # Skip restaurants that fail validation, but log the error
+            import sys
+            print(f"Warning: Failed to create RestaurantResponse for restaurant {restaurant.get('name', 'unknown')}: {e}", file=sys.stderr)
+            continue
     
     return {
-        "restaurants": [r.dict() for r in restaurants],
+        "restaurants": restaurants,
         "total": total_count,
         "limit": limit,
         "skip": skip
@@ -126,6 +144,38 @@ def get_restaurant_menu(restaurant_id: str) -> Dict[str, Any]:
     restaurant = db_service.get_restaurant_by_id(restaurant_id)
     if not restaurant:
         raise HTTPException(status_code=404, detail="Restaurant not found")
+    
+    # Get menu items
+    items_data = db_service.get_menu_items(restaurant_id)
+    items = [MenuItemResponse(**item) for item in items_data]
+    
+    return {
+        "restaurant_id": restaurant_id,
+        "restaurant_name": restaurant.get('name'),
+        "items": [item.dict() for item in items],
+        "total_items": len(items)
+    }
+
+
+def get_restaurant_menu_by_name(restaurant_name: str) -> Dict[str, Any]:
+    """
+    Get menu items for a restaurant by name (case-insensitive).
+    
+    Args:
+        restaurant_name: Name of the restaurant
+        
+    Returns:
+        Dictionary with menu items
+        
+    Raises:
+        HTTPException: If restaurant not found
+    """
+    # Get restaurant by name
+    restaurant = db_service.get_restaurant_by_name(restaurant_name)
+    if not restaurant:
+        raise HTTPException(status_code=404, detail=f"Restaurant '{restaurant_name}' not found")
+    
+    restaurant_id = str(restaurant['_id'])
     
     # Get menu items
     items_data = db_service.get_menu_items(restaurant_id)
