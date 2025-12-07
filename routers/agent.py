@@ -4,21 +4,25 @@ Agent API endpoints for GPT-4o-mini integration with Actions (function calling).
 import os
 import uuid
 import json
-import requests
-import time
 from typing import Dict, List, Any, Optional
 from dotenv import load_dotenv
 from fastapi import APIRouter, HTTPException
 from openai import OpenAI
-from models import AgentRequest, AgentResponse
+from models import (
+    AgentRequest, 
+    AgentResponse,
+    BuildCartRequest,
+    CostEstimateRequest,
+    CreateReceiptRequest,
+    DoorDashCreateDeliveryRequest,
+    CartItem
+)
+from services import restaurant_service, doordash_service
 
 # Load environment variables from .env file
 load_dotenv()
 
 router = APIRouter(prefix="/api/agent", tags=["agent"])
-
-# Base URL for the API
-API_BASE_URL = "https://danomnoms-api.onrender.com"
 
 
 def get_openai_client() -> OpenAI:
@@ -330,7 +334,7 @@ def get_gpt_tools() -> List[Dict[str, Any]]:
 
 def execute_function_call(function_name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
     """
-    Execute a function call by making an HTTP request to the API with retry logic.
+    Execute a function call by directly calling the service layer.
     
     Args:
         function_name: Name of the function to call
@@ -339,112 +343,84 @@ def execute_function_call(function_name: str, arguments: Dict[str, Any]) -> Dict
     Returns:
         Function execution result
     """
-    max_retries = 2
-    # Render free tier spins down with inactivity and can delay requests by 50+ seconds
-    # Setting timeout to 120 seconds to accommodate cold starts
-    timeout = 120
-    
-    for attempt in range(max_retries + 1):
-        try:
-            if function_name == "list_restaurants":
-                limit = min(arguments.get("limit", 10), 50)
-                skip = arguments.get("skip", 0)
-                url = f"{API_BASE_URL}/api/restaurants/?limit={limit}&skip={skip}"
-                response = requests.get(url, timeout=timeout)
-                
-            elif function_name == "get_restaurant_menu":
-                restaurant_id = arguments.get("restaurant_id")
-                url = f"{API_BASE_URL}/api/restaurants/{restaurant_id}/menu"
-                response = requests.get(url, timeout=timeout)
-                
-            elif function_name == "get_menu_item":
-                item_id = arguments.get("item_id")
-                url = f"{API_BASE_URL}/api/restaurants/items/{item_id}"
-                response = requests.get(url, timeout=timeout)
-                
-            elif function_name == "build_cart":
-                url = f"{API_BASE_URL}/api/restaurants/cart"
-                response = requests.post(url, json=arguments, timeout=timeout)
-                
-            elif function_name == "compute_cost_estimate":
-                url = f"{API_BASE_URL}/api/restaurants/cost-estimate"
-                response = requests.post(url, json=arguments, timeout=timeout)
-                
-            elif function_name == "create_receipt":
-                url = f"{API_BASE_URL}/api/restaurants/receipts"
-                response = requests.post(url, json=arguments, timeout=timeout)
-                
-            elif function_name == "create_delivery":
-                url = f"{API_BASE_URL}/api/doordash/deliveries"
-                response = requests.post(url, json=arguments, timeout=timeout)
-                
-            elif function_name == "track_delivery":
-                external_delivery_id = arguments.get("external_delivery_id")
-                url = f"{API_BASE_URL}/api/doordash/deliveries/{external_delivery_id}"
-                response = requests.get(url, timeout=timeout)
-                
-            else:
-                return {"error": f"Unknown function: {function_name}"}
+    try:
+        if function_name == "list_restaurants":
+            limit = min(arguments.get("limit", 10), 50)
+            skip = arguments.get("skip", 0)
+            result = restaurant_service.list_restaurants(limit=limit, skip=skip)
+            # Limit large responses to prevent token overflow
+            if isinstance(result, dict) and "restaurants" in result:
+                if len(result["restaurants"]) > 10:
+                    result["restaurants"] = result["restaurants"][:10]
+                    result["total"] = min(result.get("total", 0), 10)
+            return result
             
-            # Handle successful response
-            if response.status_code >= 200 and response.status_code < 300:
-                try:
-                    result = response.json()
-                    
-                    # Limit large responses to prevent token overflow
-                    if function_name == "list_restaurants" and isinstance(result, dict) and "restaurants" in result:
-                        if len(result["restaurants"]) > 10:
-                            result["restaurants"] = result["restaurants"][:10]
-                            result["total"] = min(result.get("total", 0), 10)
-                    
-                    elif function_name == "get_restaurant_menu" and isinstance(result, dict) and "items" in result:
-                        if len(result["items"]) > 20:
-                            result["items"] = result["items"][:20]
-                            result["total_items"] = min(result.get("total_items", 0), 20)
-                    
-                    return result
-                except json.JSONDecodeError as e:
-                    return {
-                        "error": f"Failed to parse API response: {str(e)}",
-                        "response_preview": response.text[:200] if response.text else "Empty"
-                    }
-            else:
-                # Non-2xx status - retry if not last attempt
-                if attempt < max_retries:
-                    time.sleep(1)  # Wait before retry
-                    continue
-                return {
-                    "error": f"API error (status {response.status_code}): {response.text[:500]}",
-                    "status_code": response.status_code
-                }
-                
-        except requests.exceptions.Timeout:
-            if attempt < max_retries:
-                time.sleep(3)  # Wait longer before retry on timeout (cold start recovery)
-                continue
-            return {
-                "error": "Request timeout: The API took too long to respond. This may be due to server cold start (free tier can take 50+ seconds to wake up). Please try again - the next request should be faster once the server is awake."
-            }
-        except requests.exceptions.ConnectionError as e:
-            if attempt < max_retries:
-                time.sleep(2)
-                continue
-            return {
-                "error": f"Connection error: Unable to connect to API. {str(e)}"
-            }
-        except requests.exceptions.RequestException as e:
-            if attempt < max_retries:
-                time.sleep(1)
-                continue
-            return {
-                "error": f"Request error: {str(e)}"
-            }
-        except Exception as e:
-            return {
-                "error": f"Unexpected error: {str(e)}"
-            }
-    
-    return {"error": "Failed after multiple retry attempts"}
+        elif function_name == "get_restaurant_menu":
+            restaurant_id = arguments.get("restaurant_id")
+            if not restaurant_id:
+                return {"error": "restaurant_id is required"}
+            result = restaurant_service.get_restaurant_menu(restaurant_id)
+            # Limit large responses to prevent token overflow
+            if isinstance(result, dict) and "items" in result:
+                if len(result["items"]) > 20:
+                    result["items"] = result["items"][:20]
+                    result["total_items"] = min(result.get("total_items", 0), 20)
+            return result
+            
+        elif function_name == "get_menu_item":
+            item_id = arguments.get("item_id")
+            if not item_id:
+                return {"error": "item_id is required"}
+            return restaurant_service.get_menu_item(item_id)
+            
+        elif function_name == "build_cart":
+            try:
+                request = BuildCartRequest(**arguments)
+            except Exception as e:
+                return {"error": f"Invalid request parameters: {str(e)}"}
+            return restaurant_service.build_cart(request)
+            
+        elif function_name == "compute_cost_estimate":
+            try:
+                request = CostEstimateRequest(**arguments)
+            except Exception as e:
+                return {"error": f"Invalid request parameters: {str(e)}"}
+            return restaurant_service.compute_cost_estimate(request)
+            
+        elif function_name == "create_receipt":
+            try:
+                request = CreateReceiptRequest(**arguments)
+            except Exception as e:
+                return {"error": f"Invalid request parameters: {str(e)}"}
+            return restaurant_service.create_receipt(request)
+            
+        elif function_name == "create_delivery":
+            try:
+                request = DoorDashCreateDeliveryRequest(**arguments)
+            except Exception as e:
+                return {"error": f"Invalid request parameters: {str(e)}"}
+            return doordash_service.create_delivery(request)
+            
+        elif function_name == "track_delivery":
+            external_delivery_id = arguments.get("external_delivery_id")
+            if not external_delivery_id:
+                return {"error": "external_delivery_id is required"}
+            return doordash_service.track_delivery(external_delivery_id)
+            
+        else:
+            return {"error": f"Unknown function: {function_name}"}
+            
+    except HTTPException as e:
+        return {
+            "error": e.detail,
+            "error_type": "http_exception",
+            "status_code": e.status_code
+        }
+    except Exception as e:
+        return {
+            "error": f"Unexpected error: {str(e)}",
+            "error_type": "unexpected_error"
+        }
 
 
 # In-memory storage for conversation threads
