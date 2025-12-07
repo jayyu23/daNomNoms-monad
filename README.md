@@ -2,10 +2,47 @@
 
 Monad x402 SF Hackathon Project
 
+## Project Overview
+
+DaNomNoms is a full-stack food delivery platform built for the Monad blockchain ecosystem. The project demonstrates seamless integration of AI-powered conversational ordering, blockchain-based micropayments via x402 protocol, and traditional delivery fulfillment through DoorDash.
+
+### Key Features
+
+- **AI-Powered Ordering**: GPT-4o-mini powered conversational agent that helps users browse restaurants, view menus, build carts, and place orders through natural language
+- **Blockchain Payments**: Secure micropayments on Monad testnet using x402 protocol for frictionless payment processing
+- **Restaurant Management**: Comprehensive restaurant and menu management with MongoDB backend
+- **Delivery Integration**: Full DoorDash Drive API integration for order fulfillment and real-time delivery tracking
+- **Modern Tech Stack**: FastAPI backend with Next.js frontend, featuring real-time chat interface and responsive design
+
+### Architecture
+
+- **Backend API** (This Repository): FastAPI-based REST API with MongoDB, OpenAI integration, and DoorDash API integration
+- **Frontend Application**: Next.js web application with AI chat interface, wallet integration, and payment processing
+  - Frontend Repository: [danomnoms-frontend-v0](https://github.com/jayyu23/danomnoms-frontend-v0)
+
+### Tech Stack
+
+**Backend:**
+- FastAPI (Python web framework)
+- MongoDB (Database)
+- OpenAI GPT-4o-mini (AI agent)
+- DoorDash Drive API (Delivery fulfillment)
+- Pydantic (Data validation)
+
+**Frontend:**
+- Next.js 16 (React framework)
+- TypeScript
+- Tailwind CSS
+- Wagmi & Viem (Ethereum wallet integration)
+- Thirdweb x402 (Micropayment protocol)
+- React Markdown (Message rendering)
+
 A REST API for the DaNomNoms food delivery service, integrating with DoorDash for delivery fulfillment.
 
 ## Table of Contents
 
+- [Project Overview](#project-overview)
+- [Frontend Application](#frontend-application)
 - [Setup](#setup)
 - [Environment Variables](#environment-variables)
 - [Running the Server](#running-the-server)
@@ -14,6 +51,20 @@ A REST API for the DaNomNoms food delivery service, integrating with DoorDash fo
   - [Restaurant Endpoints](#restaurant-endpoints)
   - [DoorDash Delivery Endpoints](#doordash-delivery-endpoints)
   - [Agent Endpoints](#agent-endpoints)
+
+## Frontend Application
+
+The frontend application provides a modern web interface for the DaNomNoms platform with the following features:
+
+- **Interactive AI Chat Interface**: Natural language conversation with GPT-4o-mini agent for browsing restaurants, viewing menus, and placing orders
+- **Wallet Integration**: Seamless connection to Monad testnet wallets using Wagmi and Viem
+- **x402 Micropayments**: Secure, low-cost payment processing using Thirdweb's x402 protocol
+- **Real-time Order Tracking**: Live delivery status updates integrated with DoorDash
+- **Responsive Design**: Mobile-first design with Tailwind CSS for optimal experience across devices
+
+**Frontend Repository**: 
+- The frontend code is included in this monorepo at [`./danomnoms-frontend-v0/`](./danomnoms-frontend-v0/)
+- If the frontend is hosted in a separate repository, update this section with the repository URL
 
 ## Setup
 
