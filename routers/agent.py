@@ -509,7 +509,7 @@ async def agent_chat(request: AgentRequest):
         
         system_message = {
             "role": "system",
-            "content": "You are a helpful assistant for the DaNomNoms food delivery service. You can help users browse restaurants, view menus, build carts, create orders, and manage deliveries. Use the available functions to interact with the API when needed. If you encounter temporary API errors or timeouts (especially on the first request after inactivity), be patient and retry - the server may be waking up from sleep mode."
+            "content": "You are a helpful assistant for the DaNomNoms food delivery service. You can help users browse restaurants, view menus, build carts, create orders, and manage deliveries. Use the available functions to interact with the API when needed. CRITICAL: When function calls return errors (check for 'success: false' or 'error' fields), you MUST show the user the exact error message from the function result. Do NOT say 'temporary issue' or 'unable to retrieve' - instead, quote the actual error message so the user knows what went wrong. If the error mentions timeout or cold start, explain that the server may be waking up."
         }
         
         messages = [system_message] if len(conversation_history) == 1 else []
@@ -582,7 +582,21 @@ async def agent_chat(request: AgentRequest):
                 except json.JSONDecodeError:
                     function_args = {}
                 
+                # Execute function call
                 function_result = execute_function_call(function_name, function_args)
+                
+                # Check if result contains an error and format it appropriately
+                if isinstance(function_result, dict) and "error" in function_result:
+                    # Format error for better LLM understanding
+                    error_msg = function_result.get("error", "Unknown error")
+                    error_type = function_result.get("error_type", "unknown")
+                    function_result = {
+                        "success": False,
+                        "error": error_msg,
+                        "error_type": error_type,
+                        "suggestion": "Please try again. If this is the first request after inactivity, the server may be waking up (can take 50+ seconds on free tier)."
+                    }
+                
                 result_json = json.dumps(function_result)
                 truncated_result = truncate_large_content(result_json, max_length=5000)
                 
