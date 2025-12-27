@@ -1,6 +1,8 @@
-# daNomNoms-monad
+# Order DaNomNoms with x402 on Monad
 
 Monad x402 SF Hackathon Project
+
+![Cover Photo](./photo.png)
 
 ## Project Overview
 
@@ -15,6 +17,8 @@ DaNomNoms is a full-stack food delivery platform built for the Monad blockchain 
 - **Modern Tech Stack**: FastAPI backend with Next.js frontend, featuring real-time chat interface and responsive design
 
 ### Architecture
+
+![DaNomNoms Architecture Diagram](./architecture.png)
 
 - **Backend API** (This Repository): FastAPI-based REST API with MongoDB, OpenAI integration, and DoorDash API integration
 - **Frontend Application**: Next.js web application with AI chat interface, wallet integration, and payment processing
